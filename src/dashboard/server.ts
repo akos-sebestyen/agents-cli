@@ -82,32 +82,46 @@ export function serveDashboard(port: number): void {
       "/api/agents/:id/stream": {
         async GET(req) {
           const containerId = req.params.id;
+          let cancelled = false;
 
           const stream = new ReadableStream({
             async start(controller) {
               const encoder = new TextEncoder();
 
               const send = (data: unknown) => {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify(data)}\n\n`),
-                );
+                if (cancelled) return;
+                try {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify(data)}\n\n`),
+                  );
+                } catch {
+                  cancelled = true;
+                }
               };
 
               try {
                 for await (const event of streamContainerLogs(containerId, {
                   follow: true,
                 })) {
+                  if (cancelled) break;
                   send(event);
                 }
               } catch (err) {
-                send({
-                  type: "error",
-                  text: err instanceof Error ? err.message : String(err),
-                });
+                if (!cancelled) {
+                  send({
+                    type: "error",
+                    text: err instanceof Error ? err.message : String(err),
+                  });
+                }
               }
 
-              send({ type: "done" });
-              controller.close();
+              if (!cancelled) {
+                send({ type: "done" });
+                controller.close();
+              }
+            },
+            cancel() {
+              cancelled = true;
             },
           });
 
