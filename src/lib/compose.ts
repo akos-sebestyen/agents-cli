@@ -63,7 +63,7 @@ function generateComposeYaml(opts: {
     services: {
       proxy: {
         image: "mitmproxy/mitmproxy:11",
-        command: "mitmdump -s /scripts/block-write-methods.py --set block_global=false --set block_private=true",
+        command: "mitmdump -s /scripts/block-write-methods.py --set block_global=false",
         volumes: [
           `${opts.proxyFilterFile}:/scripts/block-write-methods.py:ro`,
           "mitmproxy-certs:/home/mitmproxy/.mitmproxy",
