@@ -2,7 +2,7 @@ FROM node:22-bookworm
 
 # System deps: iptables, Chromium deps, Python, CA certs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    iptables iproute2 sudo ca-certificates curl libcap2-bin \
+    iptables iproute2 sudo ca-certificates curl \
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
     libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 \
     libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
@@ -36,8 +36,8 @@ RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/entrypoint.sh
 # Writable workspace
 RUN mkdir -p /workspace /home/claude/output && chown claude:claude /workspace /home/claude/output
 
-USER claude
 WORKDIR /workspace
 
+# Entrypoint runs as root for firewall setup, drops to claude user at the end
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["claude", "--dangerously-skip-permissions"]

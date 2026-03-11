@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Entrypoint runs as root to perform privileged operations,
+# then drops to claude user with NET_ADMIN/NET_RAW removed.
+
 # Safety net: wait for mitmproxy CA cert (proxy healthcheck should handle this)
 echo "Waiting for mitmproxy CA cert..."
 for i in $(seq 1 10); do
@@ -15,22 +18,22 @@ if [ ! -f /mitmproxy-certs/mitmproxy-ca-cert.pem ]; then
     exit 1
 fi
 
-# Trust the mitmproxy CA cert system-wide
-sudo /usr/bin/cp /mitmproxy-certs/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy.crt
-sudo /usr/sbin/update-ca-certificates 2>/dev/null
+# Trust the mitmproxy CA cert system-wide (running as root, no sudo needed)
+cp /mitmproxy-certs/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy.crt
+update-ca-certificates 2>/dev/null
 
-# Initialize firewall
-sudo /usr/local/bin/init-firewall.sh
+# Initialize firewall (running as root, no sudo needed)
+/usr/local/bin/init-firewall.sh
 
 # Copy Claude config from read-only mount to writable ~/.claude
 if [ -d /home/claude/.claude-config-ro ] && [ ! -f /home/claude/.claude/.copied ]; then
-    mkdir -p /home/claude/.claude
-    cp -a /home/claude/.claude-config-ro/. /home/claude/.claude/
-    touch /home/claude/.claude/.copied
+    su claude -c "mkdir -p /home/claude/.claude"
+    su claude -c "cp -a /home/claude/.claude-config-ro/. /home/claude/.claude/"
+    su claude -c "touch /home/claude/.claude/.copied"
 fi
 
 # Pre-launch agent-browser with --ignore-https-errors (mitmproxy certs)
-agent-browser open "about:blank" --ignore-https-errors >/dev/null 2>&1 &
+su claude -c 'agent-browser open "about:blank" --ignore-https-errors >/dev/null 2>&1 &'
 sleep 2
 
 cd /workspace
@@ -38,4 +41,8 @@ cd /workspace
 echo "Research agent ready. Output: /home/claude/output/"
 echo ""
 
-exec capsh --drop=cap_net_admin,cap_net_raw -- -c 'exec "$@"' -- "$@"
+# Drop to claude user, removing NET_ADMIN and NET_RAW capabilities
+exec setpriv --reuid=claude --regid=claude --init-groups \
+    --inh-caps=-cap_net_admin,-cap_net_raw \
+    --bounding-set=-cap_net_admin,-cap_net_raw \
+    "$@"
