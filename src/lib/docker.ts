@@ -20,6 +20,19 @@ export function getDocker(): Docker {
   return docker;
 }
 
+/** Check Docker is reachable. Exit with helpful message if not. */
+export async function ensureDocker(): Promise<void> {
+  try {
+    await docker.ping();
+  } catch {
+    console.error(
+      "Error: Cannot connect to Docker. Is Docker running?\n" +
+      "  Install: https://docs.docker.com/get-docker/"
+    );
+    process.exit(1);
+  }
+}
+
 /** List all agent containers (running or exited). */
 export async function listAgentContainers(): Promise<AgentContainer[]> {
   const containers = await docker.listContainers({
@@ -70,14 +83,28 @@ export async function* streamContainerLogs(
 
   // Docker multiplexed stream: 8-byte header per frame
   // [type(1) | 0(3) | size(4)] then payload
-  let buffer = Buffer.alloc(0);
+  const MAX_FRAME_SIZE = 16 * 1024 * 1024; // 16MB sanity limit
+  const chunks: Buffer[] = [];
+  let totalLen = 0;
 
-  for await (const chunk of logStream as AsyncIterable<Buffer | number>) {
-    const buf = typeof chunk === "number" ? Buffer.from([chunk]) : Buffer.from(chunk);
-    buffer = Buffer.concat([buffer, buf]);
+  for await (const chunk of logStream as AsyncIterable<Buffer>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as any));
+    totalLen += chunk.length;
+
+    // Only consolidate when we might have a complete frame
+    if (totalLen < 8) continue;
+
+    let buffer = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks);
+    chunks.length = 0;
+    totalLen = 0;
 
     while (buffer.length >= 8) {
       const size = buffer.readUInt32BE(4);
+      if (size > MAX_FRAME_SIZE) {
+        // Malformed frame — discard buffer
+        buffer = Buffer.alloc(0);
+        break;
+      }
       if (buffer.length < 8 + size) break;
 
       const payload = buffer.subarray(8, 8 + size);
@@ -91,10 +118,17 @@ export async function* streamContainerLogs(
         if (parsed) yield parsed;
       }
     }
+
+    // Push remainder back (copy to release original buffer's memory)
+    if (buffer.length > 0) {
+      chunks.push(Buffer.from(buffer));
+      totalLen = buffer.length;
+    }
   }
 
   // Drain remaining buffer
-  if (buffer.length > 0) {
+  if (totalLen > 0) {
+    const buffer = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks);
     const text = buffer.toString("utf-8");
     for (const line of text.split("\n")) {
       const parsed = parseStreamEvent(line);
