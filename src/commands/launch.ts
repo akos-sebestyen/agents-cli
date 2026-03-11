@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { resolve, join } from "node:path";
 import { existsSync, statSync, mkdirSync } from "node:fs";
 import { launchAgent, projectName } from "../lib/compose.ts";
+import { ensureDocker } from "../lib/docker.ts";
 
 export const launchCommand = new Command("launch")
   .description("Launch a new sandboxed research agent")
@@ -21,6 +22,8 @@ export const launchCommand = new Command("launch")
     name?: string;
     logs: boolean;
   }) => {
+    await ensureDocker();
+
     const codebasePath = resolve(path);
     const outputPath = resolve(opts.output);
 

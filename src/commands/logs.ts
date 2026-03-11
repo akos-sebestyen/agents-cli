@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { streamContainerLogs, listAgentContainers } from "../lib/docker.ts";
+import { streamContainerLogs, listAgentContainers, ensureDocker } from "../lib/docker.ts";
 import type { ParsedEvent } from "../lib/docker.ts";
 
 export const logsCommand = new Command("logs")
@@ -12,6 +12,8 @@ export const logsCommand = new Command("logs")
       containerId: string | undefined,
       opts: { follow: boolean; raw: boolean },
     ) => {
+      await ensureDocker();
+
       let targetId = containerId;
 
       if (!targetId) {

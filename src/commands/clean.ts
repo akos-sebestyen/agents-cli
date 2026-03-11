@@ -1,11 +1,14 @@
 // src/commands/clean.ts
 import { Command } from "commander";
 import { cleanAgents } from "../lib/compose.ts";
+import { ensureDocker } from "../lib/docker.ts";
 
 export const cleanCommand = new Command("clean")
   .description("Stop and remove all agent containers")
   .option("--force", "Skip confirmation prompt", false)
   .action(async (opts: { force: boolean }) => {
+    await ensureDocker();
+
     if (!opts.force) {
       const { listAgentContainers } = await import("../lib/docker.ts");
       const containers = await listAgentContainers();

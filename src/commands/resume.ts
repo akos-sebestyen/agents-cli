@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { resolve, join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { resumeAgent, projectName } from "../lib/compose.ts";
+import { ensureDocker } from "../lib/docker.ts";
 import { $ } from "bun";
 
 export const resumeCommand = new Command("resume")
@@ -18,6 +19,8 @@ export const resumeCommand = new Command("resume")
     output?: string;
     logs: boolean;
   }) => {
+    await ensureDocker();
+
     let logFile: string | undefined;
     if (opts.prompt && opts.logs) {
       let outputPath = opts.output ? resolve(opts.output) : undefined;
