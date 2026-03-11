@@ -99,6 +99,10 @@ function generateComposeYaml(opts: {
           "SSL_CERT_FILE=/mitmproxy-certs/mitmproxy-ca-cert.pem",
           "CLAUDE_CONFIG_DIR=/home/claude/.claude",
           `CLAUDE_MODEL=${opts.model}`,
+          // Pass through API key if set in host environment
+          ...(process.env.ANTHROPIC_API_KEY
+            ? [`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}`]
+            : []),
         ],
         labels,
         networks: ["agent-net"],
