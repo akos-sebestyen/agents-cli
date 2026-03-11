@@ -6,7 +6,7 @@ CLI for launching sandboxed Claude research agents in Docker containers.
 
 - [Bun](https://bun.sh) (v1.0+)
 - [Docker](https://docs.docker.com/get-docker/)
-- `ANTHROPIC_API_KEY` environment variable set
+- Claude Code authenticated (via `claude` CLI login)
 
 ## Install
 
@@ -47,10 +47,13 @@ agents-cli logs <container>
 # Resume an agent session
 agents-cli resume <container>
 
-# Open the dashboard
+# Stop a single agent
+agents-cli stop <container>
+
+# Open the dashboard (localhost only)
 agents-cli dashboard
 
-# Stop and remove managed containers
+# Stop and remove all managed containers
 agents-cli clean
 
 # View/set config
