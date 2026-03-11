@@ -38,4 +38,4 @@ cd /workspace
 echo "Research agent ready. Output: /home/claude/output/"
 echo ""
 
-exec "$@"
+exec capsh --drop=cap_net_admin,cap_net_raw -- -c 'exec "$@"' -- "$@"
