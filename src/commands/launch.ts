@@ -1,8 +1,8 @@
 // src/commands/launch.ts
 import { Command } from "commander";
-import { resolve } from "node:path";
-import { existsSync, statSync } from "node:fs";
-import { launchAgent } from "../lib/compose.ts";
+import { resolve, join } from "node:path";
+import { existsSync, statSync, mkdirSync } from "node:fs";
+import { launchAgent, projectName } from "../lib/compose.ts";
 
 export const launchCommand = new Command("launch")
   .description("Launch a new sandboxed research agent")
@@ -11,11 +11,13 @@ export const launchCommand = new Command("launch")
   .option("--claude-md <path>", "CLAUDE.md override — appended after system header")
   .option("-p, --prompt <prompt>", "Research prompt (omit for interactive)")
   .option("-m, --model <model>", "Model override")
+  .option("--no-logs", "Disable auto-streaming logs to output folder")
   .action(async (path: string, opts: {
     output: string;
     claudeMd?: string;
     prompt?: string;
     model?: string;
+    logs: boolean;
   }) => {
     const codebasePath = resolve(path);
     const outputPath = resolve(opts.output);
@@ -34,11 +36,20 @@ export const launchCommand = new Command("launch")
       }
     }
 
+    let logFile: string | undefined;
+    if (opts.prompt && opts.logs) {
+      mkdirSync(outputPath, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      logFile = join(outputPath, `logs_${projectName(codebasePath)}_${timestamp}.jsonl`);
+      console.error(`Logs: ${logFile}`);
+    }
+
     await launchAgent({
       codebasePath,
       outputPath,
       claudeMdPath,
       prompt: opts.prompt,
       model: opts.model,
+      logFile,
     });
   });

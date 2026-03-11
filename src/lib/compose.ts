@@ -21,10 +21,12 @@ export interface LaunchOptions {
   prompt?: string;
   /** Model override */
   model?: string;
+  /** Path to write JSONL log file (when streaming logs to file) */
+  logFile?: string;
 }
 
 /** Derive a stable compose project name from the codebase path. */
-function projectName(codebasePath: string): string {
+export function projectName(codebasePath: string): string {
   const hash = createHash("sha256")
     .update(codebasePath)
     .digest("hex")
@@ -149,6 +151,8 @@ export async function launchAgent(opts: LaunchOptions): Promise<void> {
     );
   }
 
+  const useLogFile = opts.prompt && opts.logFile;
+
   const proc = Bun.spawn(
     [
       "docker", "compose",
@@ -159,14 +163,29 @@ export async function launchAgent(opts: LaunchOptions): Promise<void> {
       ...claudeArgs,
     ],
     {
-      stdio: ["inherit", "inherit", "inherit"],
+      stdio: ["inherit", useLogFile ? "pipe" : "inherit", "inherit"],
       env: { ...process.env },
     },
   );
 
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    process.exit(exitCode);
+  if (useLogFile && proc.stdout) {
+    const writer = Bun.file(opts.logFile!).writer();
+    const reader = proc.stdout.getReader();
+    const drain = (async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        writer.write(value);
+        writer.flush();
+      }
+      writer.end();
+    })();
+    const exitCode = await proc.exited;
+    await drain;
+    if (exitCode !== 0) process.exit(exitCode);
+  } else {
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) process.exit(exitCode);
   }
 }
 
@@ -175,6 +194,7 @@ export async function resumeAgent(opts: {
   containerId?: string;
   prompt?: string;
   model?: string;
+  logFile?: string;
 }): Promise<void> {
   const config = loadConfig();
   const model = opts.model ?? config.defaultModel;
@@ -219,14 +239,31 @@ export async function resumeAgent(opts: {
     );
   }
 
+  const useLogFile = opts.prompt && opts.logFile;
+
   const proc = Bun.spawn(
-    ["docker", "exec", "-it", containerId, ...claudeArgs],
-    { stdio: ["inherit", "inherit", "inherit"] },
+    ["docker", "exec", useLogFile ? "-i" : "-it", containerId, ...claudeArgs],
+    { stdio: ["inherit", useLogFile ? "pipe" : "inherit", "inherit"] },
   );
 
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    process.exit(exitCode);
+  if (useLogFile && proc.stdout) {
+    const writer = Bun.file(opts.logFile!).writer();
+    const reader = proc.stdout.getReader();
+    const drain = (async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        writer.write(value);
+        writer.flush();
+      }
+      writer.end();
+    })();
+    const exitCode = await proc.exited;
+    await drain;
+    if (exitCode !== 0) process.exit(exitCode);
+  } else {
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) process.exit(exitCode);
   }
 }
 
