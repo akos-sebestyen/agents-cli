@@ -10,9 +10,10 @@ export interface AgentContainer {
   state: string;
   created: string;
   image: string;
+  codebase: string;
 }
 
-const AGENT_SERVICE = "agent";
+const MANAGED_LABEL = "com.agents-cli.managed";
 
 export function getDocker(): Docker {
   return docker;
@@ -20,14 +21,14 @@ export function getDocker(): Docker {
 
 /** List all agent containers (running or exited). */
 export async function listAgentContainers(): Promise<AgentContainer[]> {
-  const containers = await docker.listContainers({ all: true });
+  const containers = await docker.listContainers({
+    all: true,
+    filters: { label: [`${MANAGED_LABEL}=true`] },
+  });
   const agents: AgentContainer[] = [];
 
   for (const c of containers) {
     const name = (c.Names?.[0] ?? "").replace(/^\//, "");
-    if (!name.includes(AGENT_SERVICE)) continue;
-    if (name.includes("proxy")) continue;
-
     agents.push({
       id: c.Id,
       shortId: c.Id.slice(0, 12),
@@ -36,10 +37,10 @@ export async function listAgentContainers(): Promise<AgentContainer[]> {
       state: c.State ?? "",
       created: new Date(c.Created * 1000).toISOString(),
       image: c.Image,
+      codebase: c.Labels?.["com.agents-cli.codebase"] ?? "",
     });
   }
 
-  // Running first, then by creation time descending
   agents.sort((a, b) => {
     if (a.state === "running" && b.state !== "running") return -1;
     if (a.state !== "running" && b.state === "running") return 1;
@@ -47,13 +48,6 @@ export async function listAgentContainers(): Promise<AgentContainer[]> {
   });
 
   return agents;
-}
-
-/** Get a container by short ID or full ID. */
-export async function getContainer(
-  idOrName: string,
-): Promise<Docker.Container> {
-  return docker.getContainer(idOrName);
 }
 
 /** Stream parsed events from a container's logs. */
