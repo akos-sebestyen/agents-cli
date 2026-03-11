@@ -32,5 +32,7 @@ export function saveConfig(config: Config): void {
 }
 
 export function resolveClaudeConfig(config: Config): string {
-  return config.claudeConfig;
+  const p = config.claudeConfig;
+  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+  return p;
 }

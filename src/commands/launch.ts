@@ -1,7 +1,7 @@
 // src/commands/launch.ts
 import { Command } from "commander";
 import { resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { launchAgent } from "../lib/compose.ts";
 
 export const launchCommand = new Command("launch")
@@ -20,8 +20,8 @@ export const launchCommand = new Command("launch")
     const codebasePath = resolve(path);
     const outputPath = resolve(opts.output);
 
-    if (!existsSync(codebasePath)) {
-      console.error(`Codebase path does not exist: ${codebasePath}`);
+    if (!existsSync(codebasePath) || !statSync(codebasePath).isDirectory()) {
+      console.error(`Codebase path is not a directory: ${codebasePath}`);
       process.exit(1);
     }
 
