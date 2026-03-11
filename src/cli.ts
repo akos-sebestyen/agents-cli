@@ -6,6 +6,7 @@ import { listCommand } from "./commands/list.ts";
 import { resumeCommand } from "./commands/resume.ts";
 import { logsCommand } from "./commands/logs.ts";
 import { cleanCommand } from "./commands/clean.ts";
+import { configCommand } from "./commands/config.ts";
 
 program
   .name("agents-cli")
@@ -18,5 +19,6 @@ program.addCommand(listCommand);
 program.addCommand(resumeCommand);
 program.addCommand(logsCommand);
 program.addCommand(cleanCommand);
+program.addCommand(configCommand);
 
 program.parse();
