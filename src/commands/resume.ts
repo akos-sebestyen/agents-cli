@@ -1,16 +1,18 @@
+// src/commands/resume.ts
 import { Command } from "commander";
-import { resolve } from "node:path";
 import { resumeAgent } from "../lib/compose.ts";
 
 export const resumeCommand = new Command("resume")
-  .description("Resume the most recent agent container")
-  .argument("[project-dir]", "Project directory with docker/agent/ compose file", ".")
-  .option("-p, --prompt <prompt>", "Follow-up prompt (omit for interactive mode)")
-  .option("-m, --model <model>", "Claude model to use", "claude-sonnet-4-6")
-  .action(async (projectDir: string, opts: { prompt?: string; model: string }) => {
-    const dir = resolve(projectDir);
+  .description("Resume an agent container")
+  .argument("[container-id]", "Container to resume (default: most recent)")
+  .option("-p, --prompt <prompt>", "Follow-up prompt (omit for interactive)")
+  .option("-m, --model <model>", "Model override")
+  .action(async (containerId: string | undefined, opts: {
+    prompt?: string;
+    model?: string;
+  }) => {
     await resumeAgent({
-      projectDir: dir,
+      containerId,
       prompt: opts.prompt,
       model: opts.model,
     });
