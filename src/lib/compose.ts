@@ -68,7 +68,7 @@ function generateComposeYaml(opts: {
       - NET_RAW
     volumes:
       - ${opts.codebasePath}:/workspace:ro
-      - ${opts.outputPath}:/workspace/output:rw
+      - ${opts.outputPath}:/home/claude/output:rw
       - ${opts.claudeMdFile}:/workspace/CLAUDE.md:ro
       - ${opts.claudeConfigDir}:/home/claude/.claude-config-ro:ro
       - mitmproxy-certs:/mitmproxy-certs:ro

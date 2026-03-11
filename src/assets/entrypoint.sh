@@ -35,7 +35,7 @@ sleep 2
 
 cd /workspace
 
-echo "Research agent ready. Output: /workspace/output/"
+echo "Research agent ready. Output: /home/claude/output/"
 echo ""
 
 exec "$@"

@@ -34,7 +34,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/entrypoint.sh
 
 # Writable workspace
-RUN mkdir -p /workspace && chown claude:claude /workspace
+RUN mkdir -p /workspace /home/claude/output && chown claude:claude /workspace /home/claude/output
 
 USER claude
 WORKDIR /workspace
