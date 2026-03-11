@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Monitor</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+  }
+  .header h1 { font-size: 14px; font-weight: 600; }
+  .header .status {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+  .layout {
+    display: flex;
+    height: calc(100vh - 45px);
+  }
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    background: var(--surface);
+  }
+  .sidebar-header {
+    padding: 10px 14px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .agent-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .agent-item:hover { background: rgba(88, 166, 255, 0.08); }
+  .agent-item.active { background: rgba(88, 166, 255, 0.15); border-left: 2px solid var(--accent); }
+  .agent-name { font-size: 12px; font-weight: 500; }
+  .agent-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .badge-running { background: rgba(63, 185, 80, 0.2); color: var(--green); }
+  .badge-exited { background: rgba(139, 148, 158, 0.2); color: var(--text-muted); }
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+  .main-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .stream-container {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .event {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .event-system {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+    border: none;
+    background: none;
+    padding: 4px 12px;
+  }
+  .event-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .event-tool-call {
+    border-left: 3px solid var(--purple);
+  }
+  .tool-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--purple);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+  }
+  .tool-summary {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .event-tool-result {
+    border-left: 3px solid var(--orange);
+    font-size: 12px;
+  }
+  .result-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--orange);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+  }
+  .result-content {
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .event-final {
+    border-left: 3px solid var(--green);
+  }
+  .final-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--green);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+  }
+  .event-error {
+    border-left: 3px solid var(--red);
+    color: var(--red);
+  }
+  .event-raw {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .controls {
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg);
+  }
+  .controls label { cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .controls input[type="checkbox"] { cursor: pointer; }
+  .event-count { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Agent Monitor</h1>
+  <span class="status" id="conn-status">Disconnected</span>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-header">Containers</div>
+    <div id="agent-list"></div>
+  </div>
+  <div class="main" id="main">
+    <div class="main-empty" id="empty-state">Select an agent to view its output</div>
+  </div>
+</div>
+
+<script>
+let eventSource = null;
+let autoScroll = true;
+let activeId = null;
+let eventCount = 0;
+
+async function loadAgents() {
+  try {
+    const res = await fetch('/api/agents');
+    const agents = await res.json();
+    renderAgentList(agents);
+    document.getElementById('conn-status').textContent = `${agents.length} container(s)`;
+  } catch (e) {
+    document.getElementById('conn-status').textContent = 'Error loading agents';
+  }
+}
+
+function renderAgentList(agents) {
+  const list = document.getElementById('agent-list');
+  list.innerHTML = '';
+  for (const a of agents) {
+    const div = document.createElement('div');
+    const id = a.shortId || a.id;
+    div.className = `agent-item${id === activeId ? ' active' : ''}`;
+    const badgeClass = a.state === 'running' ? 'badge-running' : 'badge-exited';
+    const created = new Date(a.created).toLocaleString();
+    div.innerHTML = `
+      <div class="agent-name">${esc(a.name)}</div>
+      <div class="agent-meta">
+        <span class="badge ${badgeClass}">${a.state}</span>
+        ${esc(id)} &middot; ${created}
+      </div>
+    `;
+    div.onclick = () => connectToAgent(id, a.name);
+    list.appendChild(div);
+  }
+}
+
+function connectToAgent(id, name) {
+  if (eventSource) eventSource.close();
+  activeId = id;
+  eventCount = 0;
+  loadAgents();
+
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="controls">
+      <label><input type="checkbox" checked onchange="autoScroll=this.checked"> Auto-scroll</label>
+      <span>Streaming: <strong>${esc(name)}</strong></span>
+      <span class="event-count" id="event-count">0 events</span>
+    </div>
+    <div class="stream-container" id="stream"></div>
+  `;
+
+  const stream = document.getElementById('stream');
+  eventSource = new EventSource(`/api/agents/${id}/stream`);
+
+  eventSource.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    const el = renderEvent(data);
+    if (el) {
+      stream.appendChild(el);
+      eventCount++;
+      document.getElementById('event-count').textContent = `${eventCount} events`;
+      if (autoScroll) main.scrollTop = main.scrollHeight;
+    }
+    if (data.type === 'done' || data.type === 'error') {
+      eventSource.close();
+      document.getElementById('conn-status').textContent = 'Stream ended';
+    }
+  };
+
+  eventSource.onerror = () => {
+    document.getElementById('conn-status').textContent = 'SSE connection lost';
+  };
+
+  document.getElementById('conn-status').textContent = `Streaming ${name}`;
+}
+
+function renderEvent(data) {
+  const div = document.createElement('div');
+  switch (data.type) {
+    case 'assistant': {
+      const frag = document.createDocumentFragment();
+      for (const part of (data.parts || [])) {
+        const el = document.createElement('div');
+        el.className = 'event';
+        if (part.kind === 'text') {
+          el.classList.add('event-text');
+          el.textContent = part.text;
+        } else if (part.kind === 'tool_call') {
+          el.classList.add('event-tool-call');
+          el.innerHTML = `<div class="tool-label">${esc(part.tool)}</div><div class="tool-summary">${esc(part.summary)}</div>`;
+        }
+        frag.appendChild(el);
+      }
+      const wrapper = document.createElement('div');
+      wrapper.style.display = 'contents';
+      wrapper.appendChild(frag);
+      return wrapper;
+    }
+    case 'tool_result': {
+      div.className = 'event event-tool-result';
+      const results = (data.results || []).join('\n');
+      const truncated = results.length > 1000 ? results.slice(0, 1000) + '...' : results;
+      div.innerHTML = `<div class="result-label">Result</div><div class="result-content">${esc(truncated)}</div>`;
+      return div;
+    }
+    case 'result': {
+      div.className = 'event event-final';
+      div.innerHTML = `<div class="final-label">Final Result</div><div class="event-text">${esc(data.text)}</div>`;
+      return div;
+    }
+    case 'system': {
+      div.className = 'event event-system';
+      div.textContent = `[system] ${data.subtype || ''}${data.model ? ' model=' + data.model : ''}`;
+      return div;
+    }
+    case 'error': {
+      div.className = 'event event-error';
+      div.textContent = data.text;
+      return div;
+    }
+    case 'raw': {
+      div.className = 'event event-raw';
+      div.textContent = data.text;
+      return div;
+    }
+    case 'done': {
+      div.className = 'event event-system';
+      div.textContent = '--- stream ended ---';
+      return div;
+    }
+    default: return null;
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+loadAgents();
+setInterval(loadAgents, 10000);
+</script>
+</body>
+</html>
