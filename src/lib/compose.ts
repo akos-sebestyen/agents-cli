@@ -1,118 +1,166 @@
-/**
- * Docker Compose operations for launching agent containers.
- *
- * Wraps `docker compose` CLI commands since dockerode doesn't support compose natively.
- */
+// src/lib/compose.ts
+import { createHash } from "node:crypto";
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir, homedir } from "node:os";
 import { $ } from "bun";
-import { resolve, dirname } from "node:path";
+
+import { ensureImage, getImageTag } from "./image.ts";
+import { generateClaudeMd } from "./claude-md.ts";
+import { loadConfig, resolveClaudeConfig } from "./config.ts";
+import PROXY_FILTER from "../assets/block-write-methods.py" with { type: "text" };
 
 export interface LaunchOptions {
-  /** Path to the project root containing docker/agent/docker-compose.agent.yml */
-  projectDir: string;
-  /** Prompt to pass to the agent (undefined = interactive mode) */
+  /** Codebase path to mount read-only (absolute) */
+  codebasePath: string;
+  /** Writable output dir (absolute) */
+  outputPath: string;
+  /** Path to user's CLAUDE.md override (absolute, optional) */
+  claudeMdPath?: string;
+  /** Prompt (undefined = interactive) */
   prompt?: string;
-  /** Model override (default: claude-sonnet-4-6) */
+  /** Model override */
   model?: string;
 }
 
-function composeFile(projectDir: string): string {
-  return resolve(projectDir, "docker/agent/docker-compose.agent.yml");
+/** Derive a stable compose project name from the codebase path. */
+function projectName(codebasePath: string): string {
+  const hash = createHash("sha256")
+    .update(codebasePath)
+    .digest("hex")
+    .slice(0, 8);
+  return `agents-cli-${hash}`;
 }
 
-/** Launch a new agent container via docker compose run. */
+function generateComposeYaml(opts: {
+  imageTag: string;
+  codebasePath: string;
+  outputPath: string;
+  claudeMdFile: string;
+  claudeConfigDir: string;
+  proxyFilterFile: string;
+  model: string;
+}): string {
+  const timestamp = new Date().toISOString();
+  return `services:
+  proxy:
+    image: mitmproxy/mitmproxy:11
+    command: mitmdump -s /scripts/block-write-methods.py --set block_global=false
+    volumes:
+      - ${opts.proxyFilterFile}:/scripts/block-write-methods.py:ro
+      - mitmproxy-certs:/home/mitmproxy/.mitmproxy
+    networks:
+      - agent-net
+    healthcheck:
+      test: ["CMD", "ls", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"]
+      interval: 1s
+      retries: 30
+
+  agent:
+    image: ${opts.imageTag}
+    depends_on:
+      proxy:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ${opts.codebasePath}:/workspace:ro
+      - ${opts.outputPath}:/workspace/output:rw
+      - ${opts.claudeMdFile}:/workspace/CLAUDE.md:ro
+      - ${opts.claudeConfigDir}:/home/claude/.claude-config-ro:ro
+      - mitmproxy-certs:/mitmproxy-certs:ro
+    environment:
+      - http_proxy=http://proxy:8080
+      - https_proxy=http://proxy:8080
+      - HTTP_PROXY=http://proxy:8080
+      - HTTPS_PROXY=http://proxy:8080
+      - NODE_EXTRA_CA_CERTS=/mitmproxy-certs/mitmproxy-ca-cert.pem
+      - REQUESTS_CA_BUNDLE=/mitmproxy-certs/mitmproxy-ca-cert.pem
+      - SSL_CERT_FILE=/mitmproxy-certs/mitmproxy-ca-cert.pem
+      - CLAUDE_CONFIG_DIR=/home/claude/.claude
+      - CLAUDE_MODEL=${opts.model}
+    labels:
+      - com.agents-cli.managed=true
+      - com.agents-cli.codebase=${opts.codebasePath}
+      - com.agents-cli.launched=${timestamp}
+    networks:
+      - agent-net
+    stdin_open: true
+    tty: true
+
+volumes:
+  mitmproxy-certs:
+
+networks:
+  agent-net:
+`;
+}
+
+/** Launch a new agent container. */
 export async function launchAgent(opts: LaunchOptions): Promise<void> {
-  const file = composeFile(opts.projectDir);
-  const model = opts.model ?? "claude-sonnet-4-6";
+  const config = loadConfig();
+  const model = opts.model ?? config.defaultModel;
+  const claudeConfigDir = resolveClaudeConfig(config);
 
-  const args: string[] = [
-    "docker",
-    "compose",
-    "-f",
-    file,
-    "run",
-    "--rm",
-  ];
+  // Ensure sandbox image exists
+  const imageTag = await ensureImage();
 
-  const claudeArgs = [
-    "claude",
-    "--dangerously-skip-permissions",
-    "--model",
+  // Ensure output dir exists
+  mkdirSync(opts.outputPath, { recursive: true });
+
+  // Generate CLAUDE.md to a temp file
+  const claudeMdContent = generateClaudeMd(opts.claudeMdPath);
+  const tmpDir = mkdtempSync(join(tmpdir(), "agents-cli-"));
+  const claudeMdFile = join(tmpDir, "CLAUDE.md");
+  writeFileSync(claudeMdFile, claudeMdContent);
+
+  // Write proxy filter to temp dir (needs to be a file for the volume mount)
+  const proxyFilterFile = join(tmpDir, "block-write-methods.py");
+  writeFileSync(proxyFilterFile, PROXY_FILTER);
+
+  // Generate compose YAML
+  const composeYaml = generateComposeYaml({
+    imageTag,
+    codebasePath: opts.codebasePath,
+    outputPath: opts.outputPath,
+    claudeMdFile,
+    claudeConfigDir,
+    proxyFilterFile,
     model,
-  ];
-
-  if (opts.prompt) {
-    claudeArgs.push("--output-format", "stream-json", "--verbose", "-p", opts.prompt);
-  }
-
-  args.push("agent", ...claudeArgs);
-
-  // Run interactively — inherit stdio
-  const proc = Bun.spawn(args, {
-    cwd: dirname(file),
-    stdio: ["inherit", "inherit", "inherit"],
-    env: {
-      ...process.env,
-      CLAUDE_MODEL: model,
-    },
   });
+  const composeFile = join(tmpDir, "docker-compose.yml");
+  writeFileSync(composeFile, composeYaml);
 
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    process.exit(exitCode);
-  }
-}
+  const project = projectName(opts.codebasePath);
 
-/** Resume an existing agent container. */
-export async function resumeAgent(opts: {
-  projectDir: string;
-  prompt?: string;
-  model?: string;
-}): Promise<void> {
-  const file = composeFile(opts.projectDir);
-  const model = opts.model ?? "claude-sonnet-4-6";
-
-  // Find the most recent agent container
-  const result =
-    await $`docker compose -f ${file} ps -a --format '{{.Name}}'`.text();
-
-  const containers = result
-    .trim()
-    .split("\n")
-    .filter((n) => n.includes("agent") && !n.includes("proxy"));
-
-  if (containers.length === 0) {
-    console.error("No previous agent container found. Run 'launch' first.");
-    process.exit(1);
-  }
-
-  const container = containers[0]!;
-
-  // Check state and start if exited
-  const state =
-    await $`docker inspect -f '{{.State.Status}}' ${container}`.text();
-
-  if (state.trim() === "exited") {
-    await $`docker start ${container}`.quiet();
-  } else if (state.trim() === "missing") {
-    console.error(`Container ${container} no longer exists.`);
-    process.exit(1);
-  }
-
+  // Build claude args
   const claudeArgs = [
     "claude",
     "--dangerously-skip-permissions",
     "--model",
     model,
   ];
-
   if (opts.prompt) {
-    claudeArgs.push("--output-format", "stream-json", "--verbose", "-p", opts.prompt);
+    claudeArgs.push(
+      "--output-format", "stream-json",
+      "--verbose",
+      "-p", opts.prompt,
+    );
   }
 
   const proc = Bun.spawn(
-    ["docker", "exec", "-it", container, ...claudeArgs],
+    [
+      "docker", "compose",
+      "-f", composeFile,
+      "-p", project,
+      "run",
+      "agent",
+      ...claudeArgs,
+    ],
     {
       stdio: ["inherit", "inherit", "inherit"],
+      env: { ...process.env },
     },
   );
 
@@ -122,9 +170,97 @@ export async function resumeAgent(opts: {
   }
 }
 
-/** Clean up agent containers. */
-export async function cleanAgents(projectDir: string): Promise<void> {
-  const file = composeFile(projectDir);
-  await $`docker compose -f ${file} down`.quiet();
-  console.log("Cleaned up agent containers.");
+/** Resume the most recent (or specified) agent container. */
+export async function resumeAgent(opts: {
+  containerId?: string;
+  prompt?: string;
+  model?: string;
+}): Promise<void> {
+  const config = loadConfig();
+  const model = opts.model ?? config.defaultModel;
+
+  let containerId = opts.containerId;
+
+  if (!containerId) {
+    // Find most recent agents-cli container
+    const { listAgentContainers } = await import("./docker.ts");
+    const containers = await listAgentContainers();
+    if (containers.length === 0) {
+      console.error("No previous agent container found. Run 'launch' first.");
+      process.exit(1);
+    }
+    containerId = containers[0]!.id;
+    console.log(`Resuming ${containers[0]!.name} (${containers[0]!.shortId})`);
+  }
+
+  // Check state and start if exited
+  const inspectResult = await $`docker inspect -f '{{.State.Status}}' ${containerId}`.quiet().nothrow();
+  if (inspectResult.exitCode !== 0) {
+    console.error(`Container ${containerId} not found.`);
+    process.exit(1);
+  }
+
+  const state = inspectResult.text().trim();
+  if (state === "exited") {
+    await $`docker start ${containerId}`.quiet();
+  }
+
+  const claudeArgs = [
+    "claude",
+    "--dangerously-skip-permissions",
+    "--model",
+    model,
+  ];
+  if (opts.prompt) {
+    claudeArgs.push(
+      "--output-format", "stream-json",
+      "--verbose",
+      "-p", opts.prompt,
+    );
+  }
+
+  const proc = Bun.spawn(
+    ["docker", "exec", "-it", containerId, ...claudeArgs],
+    { stdio: ["inherit", "inherit", "inherit"] },
+  );
+
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    process.exit(exitCode);
+  }
+}
+
+/** Stop and remove all agents-cli managed containers + associated volumes/networks. */
+export async function cleanAgents(): Promise<void> {
+  const { listAgentContainers } = await import("./docker.ts");
+  const containers = await listAgentContainers();
+
+  if (containers.length === 0) {
+    console.log("No agent containers to clean.");
+    return;
+  }
+
+  // Collect unique compose project names from container names (e.g., "agents-cli-abcd1234-agent-run-xyz")
+  const projects = new Set<string>();
+  for (const c of containers) {
+    // Container names follow pattern: <project>-agent-run-<id> or <project>-proxy-<n>
+    const match = c.name.match(/^(agents-cli-[a-f0-9]+)/);
+    if (match) projects.add(match[1]);
+  }
+
+  for (const c of containers) {
+    if (c.state === "running") {
+      await $`docker stop ${c.id}`.quiet();
+    }
+    await $`docker rm ${c.id}`.quiet();
+    console.log(`Removed ${c.name} (${c.shortId})`);
+  }
+
+  // Clean up compose volumes and networks for each project
+  for (const project of projects) {
+    await $`docker volume rm ${project}_mitmproxy-certs`.quiet().nothrow();
+    await $`docker network rm ${project}_agent-net`.quiet().nothrow();
+  }
+
+  console.log(`Cleaned ${containers.length} container(s), ${projects.size} project(s).`);
 }
