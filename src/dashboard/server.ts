@@ -45,6 +45,7 @@ export function serveDashboard(port: number): void {
 
   Bun.serve({
     port,
+    hostname: "127.0.0.1",
     idleTimeout: 255, // max value — SSE streams are long-lived
     routes: {
       "/": new Response(INDEX_HTML, {
