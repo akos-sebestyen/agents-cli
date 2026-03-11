@@ -69,6 +69,17 @@
   .agent-item.active { background: rgba(88, 166, 255, 0.15); border-left: 2px solid var(--accent); }
   .agent-name { font-size: 12px; font-weight: 500; }
   .agent-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .agent-stats {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .stat { display: flex; align-items: center; gap: 3px; }
+  .stat-value { color: var(--accent); font-weight: 500; }
+  .stat-label { opacity: 0.7; }
   .badge {
     display: inline-block;
     padding: 1px 6px;
@@ -118,39 +129,92 @@
   .event-tool-call {
     border-left: 3px solid var(--purple);
   }
+  .tool-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tool-header:hover { opacity: 0.8; }
+  .tool-chevron {
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: transform 0.15s;
+    flex-shrink: 0;
+  }
+  .tool-chevron.open { transform: rotate(90deg); }
   .tool-label {
     font-size: 11px;
     font-weight: 600;
     color: var(--purple);
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    margin-bottom: 4px;
   }
   .tool-summary {
     color: var(--text-muted);
     font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
   }
+  .tool-detail {
+    display: none;
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .tool-detail.open { display: block; }
   .event-tool-result {
     border-left: 3px solid var(--orange);
     font-size: 12px;
   }
+  .result-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .result-header:hover { opacity: 0.8; }
   .result-label {
     font-size: 11px;
     font-weight: 600;
     color: var(--orange);
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    margin-bottom: 4px;
+  }
+  .result-preview {
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
   }
   .result-content {
+    display: none;
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 4px;
     color: var(--text-muted);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 200px;
+    max-height: 400px;
     overflow-y: auto;
   }
+  .result-content.open { display: block; }
   .event-final {
     border-left: 3px solid var(--green);
   }
@@ -207,6 +271,39 @@ let eventSource = null;
 let autoScroll = true;
 let activeId = null;
 let eventCount = 0;
+let detailCounter = 0;
+
+function toggleDetail(id, headerEl) {
+  const el = document.getElementById(id);
+  const chevron = headerEl.querySelector('.tool-chevron');
+  const isOpen = el.classList.toggle('open');
+  chevron.classList.toggle('open', isOpen);
+}
+
+function formatToolInput(tool, input) {
+  switch (tool) {
+    case 'Bash':
+      return input.command || JSON.stringify(input, null, 2);
+    case 'Read':
+      return `file: ${input.file_path || ''}${input.offset ? `\noffset: ${input.offset}` : ''}${input.limit ? `\nlimit: ${input.limit}` : ''}`;
+    case 'Write':
+      return `file: ${input.file_path || ''}\n\n${input.content || ''}`;
+    case 'Edit':
+      return `file: ${input.file_path || ''}\n\n--- old ---\n${input.old_string || ''}\n\n--- new ---\n${input.new_string || ''}`;
+    case 'Grep':
+      return `pattern: ${input.pattern || ''}\npath: ${input.path || '.'}\nglob: ${input.glob || '*'}`;
+    case 'Glob':
+      return `pattern: ${input.pattern || ''}\npath: ${input.path || '.'}`;
+    case 'WebFetch':
+      return `url: ${input.url || ''}`;
+    case 'WebSearch':
+      return `query: ${input.query || ''}`;
+    case 'Agent':
+      return `type: ${input.subagent_type || 'general'}\n\n${input.prompt || ''}`;
+    default:
+      return JSON.stringify(input, null, 2);
+  }
+}
 
 async function loadAgents() {
   try {
@@ -228,12 +325,21 @@ function renderAgentList(agents) {
     div.className = `agent-item${id === activeId ? ' active' : ''}`;
     const badgeClass = a.state === 'running' ? 'badge-running' : 'badge-exited';
     const created = new Date(a.created).toLocaleString();
+    const statsHtml = a.stats ? `
+      <div class="agent-stats">
+        ${a.stats.model ? `<span class="stat"><span class="stat-value" style="color:var(--yellow)">${esc(a.stats.model)}</span></span>` : ''}
+        <span class="stat"><span class="stat-label">tokens</span> <span class="stat-value">${formatNum(a.stats.total_tokens)}</span></span>
+        <span class="stat"><span class="stat-label">in</span> <span class="stat-value">${formatNum(a.stats.input_tokens)}</span></span>
+        <span class="stat"><span class="stat-label">out</span> <span class="stat-value">${formatNum(a.stats.output_tokens)}</span></span>
+        <span class="stat"><span class="stat-label">time</span> <span class="stat-value">${formatDuration(a.stats.running_seconds)}</span></span>
+      </div>` : '';
     div.innerHTML = `
       <div class="agent-name">${esc(a.name)}</div>
       <div class="agent-meta">
         <span class="badge ${badgeClass}">${a.state}</span>
         ${esc(id)} &middot; ${created}
       </div>
+      ${statsHtml}
     `;
     div.onclick = () => connectToAgent(id, a.name);
     list.appendChild(div);
@@ -294,7 +400,15 @@ function renderEvent(data) {
           el.textContent = part.text;
         } else if (part.kind === 'tool_call') {
           el.classList.add('event-tool-call');
-          el.innerHTML = `<div class="tool-label">${esc(part.tool)}</div><div class="tool-summary">${esc(part.summary)}</div>`;
+          const detailId = 'tool-' + (++detailCounter);
+          const inputStr = formatToolInput(part.tool, part.input || {});
+          el.innerHTML = `
+            <div class="tool-header" onclick="toggleDetail('${detailId}', this)">
+              <span class="tool-chevron">&#9654;</span>
+              <span class="tool-label">${esc(part.tool)}</span>
+              <span class="tool-summary">${esc(part.summary)}</span>
+            </div>
+            <div class="tool-detail" id="${detailId}">${esc(inputStr)}</div>`;
         }
         frag.appendChild(el);
       }
@@ -306,8 +420,15 @@ function renderEvent(data) {
     case 'tool_result': {
       div.className = 'event event-tool-result';
       const results = (data.results || []).join('\n');
-      const truncated = results.length > 1000 ? results.slice(0, 1000) + '...' : results;
-      div.innerHTML = `<div class="result-label">Result</div><div class="result-content">${esc(truncated)}</div>`;
+      const preview = results.length > 120 ? results.slice(0, 120).replace(/\n/g, ' ') + '...' : results.replace(/\n/g, ' ');
+      const detailId = 'result-' + (++detailCounter);
+      div.innerHTML = `
+        <div class="result-header" onclick="toggleDetail('${detailId}', this)">
+          <span class="tool-chevron">&#9654;</span>
+          <span class="result-label">Result</span>
+          <span class="result-preview">${esc(preview)}</span>
+        </div>
+        <div class="result-content" id="${detailId}">${esc(results)}</div>`;
       return div;
     }
     case 'result': {
@@ -345,8 +466,23 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function formatNum(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return String(n);
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) return seconds + 's';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return m + 'm ' + s + 's';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
+}
+
 loadAgents();
-setInterval(loadAgents, 10000);
+setInterval(loadAgents, 5000);
 </script>
 </body>
 </html>

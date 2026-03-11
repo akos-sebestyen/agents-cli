@@ -14,9 +14,9 @@ export const listCommand = new Command("list")
     }
 
     console.log(
-      `${"ID".padEnd(14)} ${"STATUS".padEnd(12)} ${"CODEBASE".padEnd(30)} ${"CREATED".padEnd(22)} NAME`,
+      `${"ID".padEnd(14)} ${"STATUS".padEnd(12)} ${"SESSION".padEnd(16)} ${"CODEBASE".padEnd(30)} ${"CREATED".padEnd(22)} NAME`,
     );
-    console.log("-".repeat(100));
+    console.log("-".repeat(116));
 
     for (const a of agents) {
       const created = new Date(a.created).toLocaleString();
@@ -24,8 +24,11 @@ export const listCommand = new Command("list")
       const codebase = a.codebase.length > 28
         ? "..." + a.codebase.slice(-25)
         : a.codebase;
+      const session = a.sessionName.length > 14
+        ? a.sessionName.slice(0, 14) + ".."
+        : a.sessionName;
       console.log(
-        `${a.shortId.padEnd(14)} ${stateColor}${a.state.padEnd(12)}\x1b[0m ${codebase.padEnd(30)} ${created.padEnd(22)} ${a.name}`,
+        `${a.shortId.padEnd(14)} ${stateColor}${a.state.padEnd(12)}\x1b[0m ${(session || "-").padEnd(16)} ${codebase.padEnd(30)} ${created.padEnd(22)} ${a.name}`,
       );
     }
   });

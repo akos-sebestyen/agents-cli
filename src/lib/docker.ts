@@ -11,6 +11,7 @@ export interface AgentContainer {
   created: string;
   image: string;
   codebase: string;
+  sessionName: string;
 }
 
 const MANAGED_LABEL = "com.agents-cli.managed";
@@ -38,6 +39,7 @@ export async function listAgentContainers(): Promise<AgentContainer[]> {
       created: new Date(c.Created * 1000).toISOString(),
       image: c.Image,
       codebase: c.Labels?.["com.agents-cli.codebase"] ?? "",
+      sessionName: c.Labels?.["com.agents-cli.name"] ?? "",
     });
   }
 
@@ -70,8 +72,9 @@ export async function* streamContainerLogs(
   // [type(1) | 0(3) | size(4)] then payload
   let buffer = Buffer.alloc(0);
 
-  for await (const chunk of logStream as AsyncIterable<Buffer>) {
-    buffer = Buffer.concat([buffer, chunk]);
+  for await (const chunk of logStream as AsyncIterable<Buffer | number>) {
+    const buf = typeof chunk === "number" ? Buffer.from([chunk]) : Buffer.from(chunk);
+    buffer = Buffer.concat([buffer, buf]);
 
     while (buffer.length >= 8) {
       const size = buffer.readUInt32BE(4);
@@ -102,8 +105,15 @@ export async function* streamContainerLogs(
 
 // --- Event parsing (ported from Python agent-monitor/server.py) ---
 
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+}
+
 export type ParsedEvent =
-  | { type: "assistant"; parts: AssistantPart[] }
+  | { type: "assistant"; parts: AssistantPart[]; usage?: TokenUsage }
   | { type: "tool_result"; results: string[] }
   | { type: "result"; text: string }
   | { type: "system"; subtype: string; model: string }
@@ -112,7 +122,7 @@ export type ParsedEvent =
 
 type AssistantPart =
   | { kind: "text"; text: string }
-  | { kind: "tool_call"; tool: string; summary: string };
+  | { kind: "tool_call"; tool: string; summary: string; input: Record<string, unknown> };
 
 function parseStreamEvent(line: string): ParsedEvent | null {
   const trimmed = line.trim();
@@ -142,10 +152,20 @@ function parseStreamEvent(line: string): ParsedEvent | null {
           kind: "tool_call",
           tool: toolName,
           summary: summarizeToolInput(toolName, toolInput),
+          input: toolInput,
         });
       }
     }
-    if (parts.length > 0) return { type: "assistant", parts };
+    if (parts.length > 0) {
+      const usage = (msg.usage as Record<string, unknown>) ?? {};
+      const tokenUsage: TokenUsage = {
+        input_tokens: (usage.input_tokens as number) ?? 0,
+        output_tokens: (usage.output_tokens as number) ?? 0,
+        cache_read_input_tokens: (usage.cache_read_input_tokens as number) ?? 0,
+        cache_creation_input_tokens: (usage.cache_creation_input_tokens as number) ?? 0,
+      };
+      return { type: "assistant", parts, usage: tokenUsage };
+    }
   } else if (etype === "user") {
     const msg = (ev.message as Record<string, unknown>) ?? {};
     let content = msg.content as unknown;
@@ -155,22 +175,22 @@ function parseStreamEvent(line: string): ParsedEvent | null {
     if (Array.isArray(content)) {
       for (const block of content) {
         if (typeof block === "string" && block) {
-          results.push(truncate(block, 500));
+          results.push(truncate(block, 5000));
         } else if (typeof block === "object" && block !== null) {
           const b = block as Record<string, unknown>;
           const inner = b.content;
           if (typeof inner === "string" && inner) {
-            results.push(truncate(inner, 500));
+            results.push(truncate(inner, 5000));
           } else if (Array.isArray(inner)) {
             for (const item of inner) {
-              if (typeof item === "string") results.push(truncate(item, 500));
+              if (typeof item === "string") results.push(truncate(item, 5000));
               else if (
                 typeof item === "object" &&
                 item !== null &&
                 (item as Record<string, unknown>).type === "text"
               ) {
                 results.push(
-                  truncate((item as Record<string, unknown>).text as string, 500),
+                  truncate((item as Record<string, unknown>).text as string, 5000),
                 );
               }
             }

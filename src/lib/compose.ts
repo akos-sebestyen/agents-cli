@@ -23,10 +23,13 @@ export interface LaunchOptions {
   model?: string;
   /** Path to write JSONL log file (when streaming logs to file) */
   logFile?: string;
+  /** Session name for parallel agents */
+  name?: string;
 }
 
-/** Derive a stable compose project name from the codebase path. */
-export function projectName(codebasePath: string): string {
+/** Derive a stable compose project name from the codebase path (or session name). */
+export function projectName(codebasePath: string, name?: string): string {
+  if (name) return `agents-cli-${name}`;
   const hash = createHash("sha256")
     .update(codebasePath)
     .digest("hex")
@@ -42,6 +45,7 @@ function generateComposeYaml(opts: {
   claudeConfigDir: string;
   proxyFilterFile: string;
   model: string;
+  name?: string;
 }): string {
   const timestamp = new Date().toISOString();
   return `services:
@@ -85,7 +89,7 @@ function generateComposeYaml(opts: {
     labels:
       - com.agents-cli.managed=true
       - com.agents-cli.codebase=${opts.codebasePath}
-      - com.agents-cli.launched=${timestamp}
+      - com.agents-cli.launched=${timestamp}${opts.name ? `\n      - com.agents-cli.name=${opts.name}` : ""}
     networks:
       - agent-net
     stdin_open: true
@@ -130,11 +134,12 @@ export async function launchAgent(opts: LaunchOptions): Promise<void> {
     claudeConfigDir,
     proxyFilterFile,
     model,
+    name: opts.name,
   });
   const composeFile = join(tmpDir, "docker-compose.yml");
   writeFileSync(composeFile, composeYaml);
 
-  const project = projectName(opts.codebasePath);
+  const project = projectName(opts.codebasePath, opts.name);
 
   // Build claude args
   const claudeArgs = [
@@ -281,7 +286,7 @@ export async function cleanAgents(): Promise<void> {
   const projects = new Set<string>();
   for (const c of containers) {
     // Container names follow pattern: <project>-agent-run-<id> or <project>-proxy-<n>
-    const match = c.name.match(/^(agents-cli-[a-f0-9]+)/);
+    const match = c.name.match(/^(agents-cli-.+?)-(agent|proxy)-/);
     if (match) projects.add(match[1]);
   }
 

@@ -11,12 +11,14 @@ export const launchCommand = new Command("launch")
   .option("--claude-md <path>", "CLAUDE.md override — appended after system header")
   .option("-p, --prompt <prompt>", "Research prompt (omit for interactive)")
   .option("-m, --model <model>", "Model override")
+  .option("-n, --name <name>", "Session name (for parallel agents)")
   .option("--no-logs", "Disable auto-streaming logs to output folder")
   .action(async (path: string, opts: {
     output: string;
     claudeMd?: string;
     prompt?: string;
     model?: string;
+    name?: string;
     logs: boolean;
   }) => {
     const codebasePath = resolve(path);
@@ -40,7 +42,7 @@ export const launchCommand = new Command("launch")
     if (opts.prompt && opts.logs) {
       mkdirSync(outputPath, { recursive: true });
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      logFile = join(outputPath, `logs_${projectName(codebasePath)}_${timestamp}.jsonl`);
+      logFile = join(outputPath, `logs_${projectName(codebasePath, opts.name)}_${timestamp}.jsonl`);
       console.error(`Logs: ${logFile}`);
     }
 
@@ -50,6 +52,7 @@ export const launchCommand = new Command("launch")
       claudeMdPath,
       prompt: opts.prompt,
       model: opts.model,
+      name: opts.name,
       logFile,
     });
   });
