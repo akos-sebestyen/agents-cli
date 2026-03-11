@@ -26,14 +26,24 @@ export const logsCommand = new Command("logs")
         console.log(`Streaming logs from ${agents[0]!.name} (${targetId})\n`);
       }
 
-      for await (const event of streamContainerLogs(targetId, {
-        follow: opts.follow,
-      })) {
-        if (opts.raw) {
-          console.log(JSON.stringify(event));
-        } else {
-          printEvent(event);
+      try {
+        for await (const event of streamContainerLogs(targetId, {
+          follow: opts.follow,
+        })) {
+          if (opts.raw) {
+            console.log(JSON.stringify(event));
+          } else {
+            printEvent(event);
+          }
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("no such container") || msg.includes("404")) {
+          console.error(`Container '${targetId}' not found. Run 'agents-cli list' to see available containers.`);
+        } else {
+          console.error(`Error streaming logs: ${msg}`);
+        }
+        process.exit(1);
       }
     },
   );

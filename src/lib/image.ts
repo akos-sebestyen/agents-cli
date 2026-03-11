@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { $ } from "bun";
@@ -44,15 +44,19 @@ export async function ensureImage(): Promise<string> {
 
   // Write assets to temp dir
   const buildDir = mkdtempSync(join(tmpdir(), "agents-cli-build-"));
-  for (const asset of ASSETS) {
-    writeFileSync(join(buildDir, asset.name), asset.content);
-  }
+  try {
+    for (const asset of ASSETS) {
+      writeFileSync(join(buildDir, asset.name), asset.content);
+    }
 
-  // Build
-  const build = await $`docker build -t ${tag} -f ${join(buildDir, "Dockerfile")} ${buildDir}`;
-  if (build.exitCode !== 0) {
-    console.error("Failed to build sandbox image");
-    process.exit(1);
+    // Build
+    const build = await $`docker build -t ${tag} -f ${join(buildDir, "Dockerfile")} ${buildDir}`;
+    if (build.exitCode !== 0) {
+      console.error("Failed to build sandbox image");
+      process.exit(1);
+    }
+  } finally {
+    rmSync(buildDir, { recursive: true, force: true });
   }
 
   console.log(`Built ${tag}`);

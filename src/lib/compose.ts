@@ -1,9 +1,10 @@
 // src/lib/compose.ts
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { $ } from "bun";
+import { stringify as yamlStringify } from "yaml";
 
 import { ensureImage, getImageTag } from "./image.ts";
 import { generateClaudeMd } from "./claude-md.ts";
@@ -48,59 +49,72 @@ function generateComposeYaml(opts: {
   name?: string;
 }): string {
   const timestamp = new Date().toISOString();
-  return `services:
-  proxy:
-    image: mitmproxy/mitmproxy:11
-    command: mitmdump -s /scripts/block-write-methods.py --set block_global=false
-    volumes:
-      - ${opts.proxyFilterFile}:/scripts/block-write-methods.py:ro
-      - mitmproxy-certs:/home/mitmproxy/.mitmproxy
-    networks:
-      - agent-net
-    healthcheck:
-      test: ["CMD", "ls", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"]
-      interval: 1s
-      retries: 30
 
-  agent:
-    image: ${opts.imageTag}
-    depends_on:
-      proxy:
-        condition: service_healthy
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    volumes:
-      - ${opts.codebasePath}:/workspace:ro
-      - ${opts.outputPath}:/home/claude/output:rw
-      - ${opts.claudeMdFile}:/workspace/CLAUDE.md:ro
-      - ${opts.claudeConfigDir}:/home/claude/.claude-config-ro:ro
-      - mitmproxy-certs:/mitmproxy-certs:ro
-    environment:
-      - http_proxy=http://proxy:8080
-      - https_proxy=http://proxy:8080
-      - HTTP_PROXY=http://proxy:8080
-      - HTTPS_PROXY=http://proxy:8080
-      - NODE_EXTRA_CA_CERTS=/mitmproxy-certs/mitmproxy-ca-cert.pem
-      - REQUESTS_CA_BUNDLE=/mitmproxy-certs/mitmproxy-ca-cert.pem
-      - SSL_CERT_FILE=/mitmproxy-certs/mitmproxy-ca-cert.pem
-      - CLAUDE_CONFIG_DIR=/home/claude/.claude
-      - CLAUDE_MODEL=${opts.model}
-    labels:
-      - com.agents-cli.managed=true
-      - com.agents-cli.codebase=${opts.codebasePath}
-      - com.agents-cli.launched=${timestamp}${opts.name ? `\n      - com.agents-cli.name=${opts.name}` : ""}
-    networks:
-      - agent-net
-    stdin_open: true
-    tty: true
+  const labels: Record<string, string> = {
+    "com.agents-cli.managed": "true",
+    "com.agents-cli.codebase": opts.codebasePath,
+    "com.agents-cli.launched": timestamp,
+  };
+  if (opts.name) {
+    labels["com.agents-cli.name"] = opts.name;
+  }
 
-volumes:
-  mitmproxy-certs:
+  const compose: Record<string, unknown> = {
+    services: {
+      proxy: {
+        image: "mitmproxy/mitmproxy:11",
+        command: "mitmdump -s /scripts/block-write-methods.py --set block_global=false --set block_private=true",
+        volumes: [
+          `${opts.proxyFilterFile}:/scripts/block-write-methods.py:ro`,
+          "mitmproxy-certs:/home/mitmproxy/.mitmproxy",
+        ],
+        networks: ["agent-net"],
+        healthcheck: {
+          test: ["CMD", "ls", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"],
+          interval: "1s",
+          retries: 30,
+        },
+      },
+      agent: {
+        image: opts.imageTag,
+        depends_on: {
+          proxy: { condition: "service_healthy" },
+        },
+        cap_add: ["NET_ADMIN", "NET_RAW"],
+        sysctls: ["net.ipv6.conf.all.disable_ipv6=1"],
+        volumes: [
+          `${opts.codebasePath}:/workspace:ro`,
+          `${opts.outputPath}:/home/claude/output:rw`,
+          `${opts.claudeMdFile}:/workspace/CLAUDE.md:ro`,
+          `${opts.claudeConfigDir}:/home/claude/.claude-config-ro:ro`,
+          "mitmproxy-certs:/mitmproxy-certs:ro",
+        ],
+        environment: [
+          "http_proxy=http://proxy:8080",
+          "https_proxy=http://proxy:8080",
+          "HTTP_PROXY=http://proxy:8080",
+          "HTTPS_PROXY=http://proxy:8080",
+          "NODE_EXTRA_CA_CERTS=/mitmproxy-certs/mitmproxy-ca-cert.pem",
+          "REQUESTS_CA_BUNDLE=/mitmproxy-certs/mitmproxy-ca-cert.pem",
+          "SSL_CERT_FILE=/mitmproxy-certs/mitmproxy-ca-cert.pem",
+          "CLAUDE_CONFIG_DIR=/home/claude/.claude",
+          `CLAUDE_MODEL=${opts.model}`,
+        ],
+        labels,
+        networks: ["agent-net"],
+        stdin_open: true,
+        tty: true,
+      },
+    },
+    volumes: {
+      "mitmproxy-certs": null,
+    },
+    networks: {
+      "agent-net": null,
+    },
+  };
 
-networks:
-  agent-net:
-`;
+  return yamlStringify(compose);
 }
 
 /** Launch a new agent container. */
@@ -118,79 +132,93 @@ export async function launchAgent(opts: LaunchOptions): Promise<void> {
   // Generate CLAUDE.md to a temp file
   const claudeMdContent = generateClaudeMd(opts.claudeMdPath);
   const tmpDir = mkdtempSync(join(tmpdir(), "agents-cli-"));
-  const claudeMdFile = join(tmpDir, "CLAUDE.md");
-  writeFileSync(claudeMdFile, claudeMdContent);
+  try {
+    const claudeMdFile = join(tmpDir, "CLAUDE.md");
+    writeFileSync(claudeMdFile, claudeMdContent);
 
-  // Write proxy filter to temp dir (needs to be a file for the volume mount)
-  const proxyFilterFile = join(tmpDir, "block-write-methods.py");
-  writeFileSync(proxyFilterFile, PROXY_FILTER);
+    // Write proxy filter to temp dir (needs to be a file for the volume mount)
+    const proxyFilterFile = join(tmpDir, "block-write-methods.py");
+    writeFileSync(proxyFilterFile, PROXY_FILTER);
 
-  // Generate compose YAML
-  const composeYaml = generateComposeYaml({
-    imageTag,
-    codebasePath: opts.codebasePath,
-    outputPath: opts.outputPath,
-    claudeMdFile,
-    claudeConfigDir,
-    proxyFilterFile,
-    model,
-    name: opts.name,
-  });
-  const composeFile = join(tmpDir, "docker-compose.yml");
-  writeFileSync(composeFile, composeYaml);
+    // Generate compose YAML
+    const composeYaml = generateComposeYaml({
+      imageTag,
+      codebasePath: opts.codebasePath,
+      outputPath: opts.outputPath,
+      claudeMdFile,
+      claudeConfigDir,
+      proxyFilterFile,
+      model,
+      name: opts.name,
+    });
+    const composeFile = join(tmpDir, "docker-compose.yml");
+    writeFileSync(composeFile, composeYaml);
 
-  const project = projectName(opts.codebasePath, opts.name);
+    const project = projectName(opts.codebasePath, opts.name);
 
-  // Build claude args
-  const claudeArgs = [
-    "claude",
-    "--dangerously-skip-permissions",
-    "--model",
-    model,
-  ];
-  if (opts.prompt) {
-    claudeArgs.push(
-      "--output-format", "stream-json",
-      "--verbose",
-      "-p", opts.prompt,
+    // Build claude args
+    const claudeArgs = [
+      "claude",
+      "--dangerously-skip-permissions",
+      "--model",
+      model,
+    ];
+    if (opts.prompt) {
+      claudeArgs.push(
+        "--output-format", "stream-json",
+        "--verbose",
+        "-p", opts.prompt,
+      );
+    }
+
+    const useLogFile = opts.prompt && opts.logFile;
+
+    const proc = Bun.spawn(
+      [
+        "docker", "compose",
+        "-f", composeFile,
+        "-p", project,
+        "run",
+        "agent",
+        ...claudeArgs,
+      ],
+      {
+        stdio: ["inherit", useLogFile ? "pipe" : "inherit", "inherit"],
+        env: { ...process.env },
+      },
     );
-  }
 
-  const useLogFile = opts.prompt && opts.logFile;
+    // Forward signals to child process
+    const forwardSignal = () => { proc.kill("SIGTERM"); };
+    process.on("SIGINT", forwardSignal);
+    process.on("SIGTERM", forwardSignal);
 
-  const proc = Bun.spawn(
-    [
-      "docker", "compose",
-      "-f", composeFile,
-      "-p", project,
-      "run",
-      "agent",
-      ...claudeArgs,
-    ],
-    {
-      stdio: ["inherit", useLogFile ? "pipe" : "inherit", "inherit"],
-      env: { ...process.env },
-    },
-  );
-
-  if (useLogFile && proc.stdout) {
-    const writer = Bun.file(opts.logFile!).writer();
-    const reader = proc.stdout.getReader();
-    const drain = (async () => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        writer.write(value);
-        writer.flush();
+    try {
+      if (useLogFile && proc.stdout) {
+        const writer = Bun.file(opts.logFile!).writer();
+        const reader = proc.stdout.getReader();
+        const drain = (async () => {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            writer.write(value);
+            writer.flush();
+          }
+          writer.end();
+        })();
+        const exitCode = await proc.exited;
+        await drain;
+        if (exitCode !== 0) process.exit(exitCode);
+      } else {
+        const exitCode = await proc.exited;
+        if (exitCode !== 0) process.exit(exitCode);
       }
-      writer.end();
-    })();
-    const exitCode = await proc.exited;
-    await drain;
-    if (exitCode !== 0) process.exit(exitCode);
-  } else {
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) process.exit(exitCode);
+    } finally {
+      process.off("SIGINT", forwardSignal);
+      process.off("SIGTERM", forwardSignal);
+    }
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
   }
 }
 
@@ -221,7 +249,7 @@ export async function resumeAgent(opts: {
   // Check state and start if exited
   const inspectResult = await $`docker inspect -f '{{.State.Status}}' ${containerId}`.quiet().nothrow();
   if (inspectResult.exitCode !== 0) {
-    console.error(`Container ${containerId} not found.`);
+    console.error(`Container '${containerId}' not found. Run 'agents-cli list' to see available containers.`);
     process.exit(1);
   }
 
@@ -251,24 +279,34 @@ export async function resumeAgent(opts: {
     { stdio: ["inherit", useLogFile ? "pipe" : "inherit", "inherit"] },
   );
 
-  if (useLogFile && proc.stdout) {
-    const writer = Bun.file(opts.logFile!).writer();
-    const reader = proc.stdout.getReader();
-    const drain = (async () => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        writer.write(value);
-        writer.flush();
-      }
-      writer.end();
-    })();
-    const exitCode = await proc.exited;
-    await drain;
-    if (exitCode !== 0) process.exit(exitCode);
-  } else {
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) process.exit(exitCode);
+  // Forward signals to child process
+  const forwardSignal = () => { proc.kill("SIGTERM"); };
+  process.on("SIGINT", forwardSignal);
+  process.on("SIGTERM", forwardSignal);
+
+  try {
+    if (useLogFile && proc.stdout) {
+      const writer = Bun.file(opts.logFile!).writer();
+      const reader = proc.stdout.getReader();
+      const drain = (async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          writer.write(value);
+          writer.flush();
+        }
+        writer.end();
+      })();
+      const exitCode = await proc.exited;
+      await drain;
+      if (exitCode !== 0) process.exit(exitCode);
+    } else {
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) process.exit(exitCode);
+    }
+  } finally {
+    process.off("SIGINT", forwardSignal);
+    process.off("SIGTERM", forwardSignal);
   }
 }
 
