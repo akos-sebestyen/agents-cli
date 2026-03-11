@@ -43,6 +43,6 @@ echo ""
 
 # Drop to claude user, removing NET_ADMIN and NET_RAW capabilities
 exec setpriv --reuid=claude --regid=claude --init-groups \
-    --inh-caps=-cap_net_admin,-cap_net_raw \
-    --bounding-set=-cap_net_admin,-cap_net_raw \
+    --inh-caps=-net_admin,-net_raw \
+    --bounding-set=-net_admin,-net_raw \
     "$@"
