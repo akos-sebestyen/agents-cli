@@ -10,7 +10,10 @@
   "scripts": {
     "dev": "bun src/cli.ts",
     "build": "bun build src/cli.ts --compile --outfile dist/agents-cli",
-    "install-cli": "./install.sh"
+    "install-cli": "./install.sh",
+    "test": "bun test src/",
+    "test:integration": "INTEGRATION=1 bun test tests/integration/",
+    "test:all": "INTEGRATION=1 bun test"
   },
   "dependencies": {
     "commander": "^14.0.3",
