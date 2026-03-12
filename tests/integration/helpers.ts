@@ -25,12 +25,10 @@ export function getAgentContainerId(): string {
  */
 export async function dockerExec(
   cmd: string[],
-  timeoutMs = 30_000,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const result = await $`docker exec ${agentContainerId} ${cmd}`
     .quiet()
-    .nothrow()
-    .timeout(timeoutMs);
+    .nothrow();
   return {
     stdout: result.stdout.toString().trim(),
     stderr: result.stderr.toString().trim(),
@@ -54,15 +52,15 @@ export async function startTestStack(): Promise<void> {
   const proxyFilterFile = join(tmpDir, "block-write-methods.py");
   writeFileSync(proxyFilterFile, PROXY_FILTER);
 
-  // Write a minimal CLAUDE.md
-  const claudeMdFile = join(tmpDir, "CLAUDE.md");
-  writeFileSync(claudeMdFile, "# Test agent");
-
   // Create a minimal codebase and output dir
   const codebasePath = join(tmpDir, "codebase");
   const outputPath = join(tmpDir, "output");
   mkdirSync(codebasePath, { recursive: true });
   mkdirSync(outputPath, { recursive: true });
+
+  // Write CLAUDE.md inside codebase so mount overlay works on read-only /workspace
+  const claudeMdFile = join(codebasePath, "CLAUDE.md");
+  writeFileSync(claudeMdFile, "# Test agent");
 
   // Create claude config dir
   const claudeConfigDir = join(tmpDir, "claude-config");

@@ -84,7 +84,7 @@ if (!process.env.INTEGRATION) {
           "-X", "POST",
           "--resolve", "evil.api.anthropic.com:443:93.184.216.34",
           "https://evil.api.anthropic.com/v1/test",
-        ], 15_000);
+        ]);
         // Document: this currently passes through (not 403) due to .endswith()
         // A fix should make this return 403
         console.log(`Subdomain spoof test result: HTTP ${result.stdout}`);
@@ -100,7 +100,7 @@ if (!process.env.INTEGRATION) {
           "curl", "-s", "--connect-timeout", "5",
           "--noproxy", "*",
           "http://example.com",
-        ], 15_000);
+        ]);
         // Should fail — either connection refused or timeout
         expect(result.exitCode).not.toBe(0);
       }, 30_000);
@@ -110,7 +110,7 @@ if (!process.env.INTEGRATION) {
           "curl", "-s", "--connect-timeout", "5",
           "--noproxy", "*",
           "http://93.184.216.34",
-        ], 15_000);
+        ]);
         expect(result.exitCode).not.toBe(0);
       }, 30_000);
     });
@@ -122,7 +122,7 @@ if (!process.env.INTEGRATION) {
         // getent uses system resolver (Docker's 127.0.0.11)
         const result = await dockerExec([
           "getent", "hosts", "example.com",
-        ], 15_000);
+        ]);
         expect(result.exitCode).toBe(0);
         expect(result.stdout).not.toBe("");
       }, 30_000);
@@ -131,7 +131,7 @@ if (!process.env.INTEGRATION) {
         // Direct TCP to 8.8.8.8:53 should be blocked by iptables
         const result = await dockerExec([
           "sh", "-c", "timeout 5 bash -c 'echo > /dev/tcp/8.8.8.8/53' 2>&1 || echo BLOCKED",
-        ], 15_000);
+        ]);
         expect(result.stdout).toContain("BLOCKED");
       }, 30_000);
     });
