@@ -77,6 +77,12 @@ describe("rewriteFromLine", () => {
     const result = rewriteFromLine(input, "agents-cli-sandbox:newhash");
     expect(result).toBe("FROM agents-cli-sandbox:newhash\nRUN echo hi");
   });
+
+  test("handles FROM without explicit tag", () => {
+    const input = "FROM agents-cli-sandbox\nRUN echo hi";
+    const result = rewriteFromLine(input, "agents-cli-sandbox:abc123");
+    expect(result).toBe("FROM agents-cli-sandbox:abc123\nRUN echo hi");
+  });
 });
 
 describe("getImageTag", () => {

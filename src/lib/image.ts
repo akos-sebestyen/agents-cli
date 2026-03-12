@@ -41,7 +41,7 @@ export function getExtendedImageTag(baseImageId: string, dockerfileContents: str
 
 export function rewriteFromLine(dockerfileContents: string, baseTag: string): string {
   return dockerfileContents.replace(
-    /^(FROM\s+)agents-cli-sandbox:\S+/im,
+    /^(FROM\s+)agents-cli-sandbox(:\S+)?/im,
     `$1${baseTag}`,
   );
 }
