@@ -97,6 +97,34 @@ export async function listOrphanedProxyContainers(): Promise<AgentContainer[]> {
   return orphans;
 }
 
+const MAX_FRAME_SIZE = 16 * 1024 * 1024; // 16MB sanity limit
+
+/**
+ * Parse Docker multiplexed stream frames from a buffer.
+ * Format: [type(1) | 0(3) | size(4)] then payload
+ * Returns parsed frame payloads and any remaining incomplete bytes.
+ */
+export function parseDockerFrames(buffer: Buffer): {
+  frames: Buffer[];
+  remaining: Buffer;
+} {
+  const frames: Buffer[] = [];
+
+  while (buffer.length >= 8) {
+    const size = buffer.readUInt32BE(4);
+    if (size > MAX_FRAME_SIZE) {
+      // Malformed frame — discard buffer
+      return { frames, remaining: Buffer.alloc(0) };
+    }
+    if (buffer.length < 8 + size) break;
+
+    frames.push(buffer.subarray(8, 8 + size));
+    buffer = buffer.subarray(8 + size);
+  }
+
+  return { frames, remaining: Buffer.from(buffer) };
+}
+
 /** Stream parsed events from a container's logs. */
 export async function* streamContainerLogs(
   containerId: string,
@@ -113,9 +141,6 @@ export async function* streamContainerLogs(
     timestamps: false,
   });
 
-  // Docker multiplexed stream: 8-byte header per frame
-  // [type(1) | 0(3) | size(4)] then payload
-  const MAX_FRAME_SIZE = 16 * 1024 * 1024; // 16MB sanity limit
   const chunks: Buffer[] = [];
   let totalLen = 0;
 
@@ -123,38 +148,25 @@ export async function* streamContainerLogs(
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as any));
     totalLen += chunk.length;
 
-    // Only consolidate when we might have a complete frame
     if (totalLen < 8) continue;
 
     let buffer = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks);
     chunks.length = 0;
     totalLen = 0;
 
-    while (buffer.length >= 8) {
-      const size = buffer.readUInt32BE(4);
-      if (size > MAX_FRAME_SIZE) {
-        // Malformed frame — discard buffer
-        buffer = Buffer.alloc(0);
-        break;
-      }
-      if (buffer.length < 8 + size) break;
+    const { frames, remaining } = parseDockerFrames(buffer);
 
-      const payload = buffer.subarray(8, 8 + size);
-      buffer = buffer.subarray(8 + size);
-
-      const text = payload.toString("utf-8");
-      const lines = text.split("\n");
-
-      for (const line of lines) {
+    for (const frame of frames) {
+      const text = frame.toString("utf-8");
+      for (const line of text.split("\n")) {
         const parsed = parseStreamEvent(line);
         if (parsed) yield parsed;
       }
     }
 
-    // Push remainder back (copy to release original buffer's memory)
-    if (buffer.length > 0) {
-      chunks.push(Buffer.from(buffer));
-      totalLen = buffer.length;
+    if (remaining.length > 0) {
+      chunks.push(remaining);
+      totalLen = remaining.length;
     }
   }
 
