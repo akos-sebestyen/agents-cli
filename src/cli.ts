@@ -8,6 +8,7 @@ import { logsCommand } from "./commands/logs.ts";
 import { cleanCommand } from "./commands/clean.ts";
 import { stopCommand } from "./commands/stop.ts";
 import { configCommand } from "./commands/config.ts";
+import { buildCommand } from "./commands/build.ts";
 import { printExplain } from "./commands/explain.ts";
 
 program
@@ -24,6 +25,7 @@ program.addCommand(logsCommand);
 program.addCommand(cleanCommand);
 program.addCommand(stopCommand);
 program.addCommand(configCommand);
+program.addCommand(buildCommand);
 
 // Intercept --explain before Commander shows default help
 const args = process.argv.slice(2);
