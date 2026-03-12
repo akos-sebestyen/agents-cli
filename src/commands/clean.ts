@@ -6,7 +6,9 @@ import { ensureDocker } from "../lib/docker.ts";
 export const cleanCommand = new Command("clean")
   .description("Stop and remove all agent containers")
   .option("--force", "Skip confirmation prompt", false)
-  .action(async (opts: { force: boolean }) => {
+  .option("--images", "Also remove cached extension images", false)
+  .option("--all", "Remove containers and cached extension images", false)
+  .action(async (opts: { force: boolean; images: boolean; all: boolean }) => {
     await ensureDocker();
 
     if (!opts.force) {
@@ -30,4 +32,14 @@ export const cleanCommand = new Command("clean")
       }
     }
     await cleanAgents();
+
+    if (opts.images || opts.all) {
+      const { cleanExtensionImages } = await import("../lib/image.ts");
+      const count = await cleanExtensionImages();
+      if (count > 0) {
+        console.log(`Removed ${count} cached extension image(s).`);
+      } else {
+        console.log("No cached extension images to remove.");
+      }
+    }
   });

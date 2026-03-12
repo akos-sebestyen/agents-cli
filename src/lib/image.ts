@@ -140,3 +140,17 @@ export async function ensureImage(): Promise<string> {
   console.log(`Built ${tag}`);
   return tag;
 }
+
+/** Remove all cached agents-cli-ext images. Returns the count removed. */
+export async function cleanExtensionImages(): Promise<number> {
+  const result = await $`docker images --filter reference=${EXT_IMAGE_NAME} --format {{.ID}}`.quiet().nothrow();
+  if (result.exitCode !== 0 || !result.text().trim()) {
+    return 0;
+  }
+
+  const imageIds = result.text().trim().split("\n").filter(Boolean);
+  for (const id of imageIds) {
+    await $`docker rmi ${id}`.quiet().nothrow();
+  }
+  return imageIds.length;
+}
