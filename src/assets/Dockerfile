@@ -15,8 +15,15 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && mv /root/.local/bin/uv /usr/local/bin/uv \
     && mv /root/.local/bin/uvx /usr/local/bin/uvx
 
-# Install Claude Code and agent-browser globally
-RUN npm install -g @anthropic-ai/claude-code agent-browser
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash \
+    && mv /root/.bun/bin/bun /usr/local/bin/bun \
+    && ln -s /usr/local/bin/bun /usr/local/bin/bunx
+
+# Install Claude Code (native binary) and agent-browser
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && cp /root/.local/bin/claude /usr/local/bin/claude
+RUN npm install -g agent-browser
 
 # Non-root user
 RUN usermod -l claude -d /home/claude -m node \
