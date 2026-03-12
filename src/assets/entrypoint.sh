@@ -32,8 +32,13 @@ if [ -d /home/claude/.claude-config-ro ] && [ ! -f /home/claude/.claude/.copied 
     su claude -c "touch /home/claude/.claude/.copied"
 fi
 
-# Pre-launch agent-browser with --ignore-https-errors (mitmproxy certs)
-su claude -c 'agent-browser open "about:blank" --ignore-https-errors >/dev/null 2>&1 &'
+# Import mitmproxy CA into Chromium's NSS database so it trusts the proxy cert
+su claude -c "mkdir -p /home/claude/.pki/nssdb"
+su claude -c "certutil -d sql:/home/claude/.pki/nssdb -N --empty-password"
+su claude -c "certutil -d sql:/home/claude/.pki/nssdb -A -t 'C,,' -n mitmproxy -i /mitmproxy-certs/mitmproxy-ca-cert.pem"
+
+# Pre-launch agent-browser
+su claude -c 'agent-browser open "about:blank" >/dev/null 2>&1 &'
 sleep 2
 
 cd /workspace
@@ -42,6 +47,8 @@ echo "Research agent ready. Output: /home/claude/output/"
 echo ""
 
 # Drop to claude user, removing NET_ADMIN and NET_RAW capabilities
+export HOME=/home/claude
+export USER=claude
 exec setpriv --reuid=claude --regid=claude --init-groups \
     --inh-caps=-net_admin,-net_raw \
     --bounding-set=-net_admin,-net_raw \
