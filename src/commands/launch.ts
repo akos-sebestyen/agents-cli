@@ -14,6 +14,7 @@ export const launchCommand = new Command("launch")
   .option("-m, --model <model>", "Model override")
   .option("-n, --name <name>", "Session name (for parallel agents)")
   .option("--no-logs", "Disable auto-streaming logs to output folder")
+  .option("--dockerfile <path>", "Dockerfile extending base image")
   .action(async (path: string, opts: {
     output: string;
     claudeMd?: string;
@@ -21,6 +22,7 @@ export const launchCommand = new Command("launch")
     model?: string;
     name?: string;
     logs: boolean;
+    dockerfile?: string;
   }) => {
     await ensureDocker();
 
@@ -41,6 +43,15 @@ export const launchCommand = new Command("launch")
       }
     }
 
+    let dockerfilePath: string | undefined;
+    if (opts.dockerfile) {
+      dockerfilePath = resolve(opts.dockerfile);
+      if (!existsSync(dockerfilePath)) {
+        console.error(`Dockerfile not found: ${dockerfilePath}`);
+        process.exit(1);
+      }
+    }
+
     let logFile: string | undefined;
     if (opts.prompt && opts.logs) {
       mkdirSync(outputPath, { recursive: true });
@@ -57,5 +68,6 @@ export const launchCommand = new Command("launch")
       model: opts.model,
       name: opts.name,
       logFile,
+      dockerfilePath,
     });
   });

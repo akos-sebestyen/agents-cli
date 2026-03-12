@@ -6,7 +6,7 @@ import { tmpdir, homedir } from "node:os";
 import { $ } from "bun";
 import { stringify as yamlStringify } from "yaml";
 
-import { ensureImage, getImageTag } from "./image.ts";
+import { ensureImage, getImageTag, buildExtendedImage } from "./image.ts";
 import { generateClaudeMd } from "./claude-md.ts";
 import { loadConfig, resolveClaudeConfig } from "./config.ts";
 import PROXY_FILTER from "../assets/block-write-methods.py" with { type: "text" };
@@ -26,6 +26,8 @@ export interface LaunchOptions {
   logFile?: string;
   /** Session name for parallel agents */
   name?: string;
+  /** Path to a Dockerfile extending the base image (absolute, optional) */
+  dockerfilePath?: string;
 }
 
 /** Derive a stable compose project name from the codebase path (or session name). */
@@ -129,7 +131,12 @@ export async function launchAgent(opts: LaunchOptions): Promise<void> {
   const claudeConfigDir = resolveClaudeConfig(config);
 
   // Ensure sandbox image exists
-  const imageTag = await ensureImage();
+  const baseTag = await ensureImage();
+
+  // Build extended image if Dockerfile provided
+  const imageTag = opts.dockerfilePath
+    ? await buildExtendedImage(opts.dockerfilePath, opts.codebasePath)
+    : baseTag;
 
   // Ensure output dir exists
   mkdirSync(opts.outputPath, { recursive: true });
