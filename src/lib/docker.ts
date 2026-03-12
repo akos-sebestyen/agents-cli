@@ -190,7 +190,7 @@ type AssistantPart =
   | { kind: "text"; text: string }
   | { kind: "tool_call"; tool: string; summary: string; input: Record<string, unknown> };
 
-function parseStreamEvent(line: string): ParsedEvent | null {
+export function parseStreamEvent(line: string): ParsedEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
 
@@ -281,7 +281,7 @@ function parseStreamEvent(line: string): ParsedEvent | null {
   return null;
 }
 
-function summarizeToolInput(
+export function summarizeToolInput(
   toolName: string,
   inp: Record<string, unknown>,
 ): string {
@@ -319,6 +319,6 @@ function summarizeToolInput(
   }
 }
 
-function truncate(s: string, max: number): string {
+export function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "..." : s;
 }
