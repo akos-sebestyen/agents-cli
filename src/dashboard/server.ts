@@ -1,7 +1,7 @@
 import { listAgentContainers, streamContainerLogs, type TokenUsage } from "../lib/docker.ts";
 import INDEX_HTML from "./index.html" with { type: "text" };
 
-interface AgentStats {
+export interface AgentStats {
   input_tokens: number;
   output_tokens: number;
   cache_read_input_tokens: number;
@@ -32,7 +32,7 @@ function getOrCreateStats(containerId: string): AgentStats {
   return stats;
 }
 
-function accumulateUsage(stats: AgentStats, usage: TokenUsage): void {
+export function accumulateUsage(stats: AgentStats, usage: TokenUsage): void {
   stats.input_tokens += usage.input_tokens;
   stats.output_tokens += usage.output_tokens;
   stats.cache_read_input_tokens += usage.cache_read_input_tokens;
