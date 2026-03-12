@@ -11,6 +11,25 @@ import PROXY_FILTER from "../assets/block-write-methods.py" with { type: "text" 
 
 const IMAGE_NAME = "agents-cli-sandbox";
 
+export function validateDockerfile(content: string): void {
+  const fromLine = content
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.toUpperCase().startsWith("FROM "));
+
+  if (!fromLine) {
+    throw new Error("Dockerfile has no FROM instruction");
+  }
+
+  const imageRef = fromLine.split(/\s+/)[1] ?? "";
+  const [imageName] = imageRef.split(":");
+  if (imageName !== "agents-cli-sandbox") {
+    throw new Error(
+      `Dockerfile must use "agents-cli-sandbox" as its base image (FROM agents-cli-sandbox:...), got: ${imageRef}`
+    );
+  }
+}
+
 // Hash all assets in alphabetical order by filename
 const ASSETS = [
   { name: "block-write-methods.py", content: PROXY_FILTER },
