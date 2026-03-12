@@ -37,8 +37,15 @@ su claude -c "mkdir -p /home/claude/.pki/nssdb"
 su claude -c "certutil -d sql:/home/claude/.pki/nssdb -N --empty-password"
 su claude -c "certutil -d sql:/home/claude/.pki/nssdb -A -t 'C,,' -n mitmproxy -i /mitmproxy-certs/mitmproxy-ca-cert.pem"
 
+# Create XDG runtime dir for agent-browser socket
+CLAUDE_UID=$(id -u claude)
+mkdir -p "/run/user/$CLAUDE_UID"
+chown claude:claude "/run/user/$CLAUDE_UID"
+chmod 700 "/run/user/$CLAUDE_UID"
+export XDG_RUNTIME_DIR="/run/user/$CLAUDE_UID"
+
 # Pre-launch agent-browser
-su claude -c 'agent-browser open "about:blank" >/dev/null 2>&1 &'
+su claude -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR agent-browser open 'about:blank' >/dev/null 2>&1 &"
 sleep 2
 
 cd /workspace
