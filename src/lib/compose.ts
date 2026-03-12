@@ -38,7 +38,7 @@ export function projectName(codebasePath: string, name?: string): string {
   return `agents-cli-${hash}`;
 }
 
-function generateComposeYaml(opts: {
+export function generateComposeYaml(opts: {
   imageTag: string;
   codebasePath: string;
   outputPath: string;
@@ -319,6 +319,16 @@ export async function resumeAgent(opts: {
   }
 }
 
+/** Extract unique compose project names from container names. */
+export function extractProjectNames(containerNames: string[]): string[] {
+  const projects = new Set<string>();
+  for (const name of containerNames) {
+    const match = name.match(/^(agents-cli-.+?)-(agent|proxy)-/);
+    if (match) projects.add(match[1]);
+  }
+  return [...projects];
+}
+
 /** Stop and remove all agents-cli managed containers + associated volumes/networks. */
 export async function cleanAgents(): Promise<void> {
   const { listAgentContainers, listOrphanedProxyContainers } = await import("./docker.ts");
@@ -332,13 +342,7 @@ export async function cleanAgents(): Promise<void> {
     return;
   }
 
-  // Collect unique compose project names from container names (e.g., "agents-cli-abcd1234-agent-run-xyz")
-  const projects = new Set<string>();
-  for (const c of allContainers) {
-    // Container names follow pattern: <project>-agent-run-<id> or <project>-proxy-<n>
-    const match = c.name.match(/^(agents-cli-.+?)-(agent|proxy)-/);
-    if (match) projects.add(match[1]);
-  }
+  const projects = extractProjectNames(allContainers.map((c) => c.name));
 
   for (const c of allContainers) {
     if (c.state === "running") {
@@ -363,5 +367,5 @@ export async function cleanAgents(): Promise<void> {
     }
   }
 
-  console.log(`Cleaned ${allContainers.length} container(s), ${projects.size} project(s).`);
+  console.log(`Cleaned ${allContainers.length} container(s), ${projects.length} project(s).`);
 }
