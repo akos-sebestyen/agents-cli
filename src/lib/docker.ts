@@ -65,6 +65,38 @@ export async function listAgentContainers(): Promise<AgentContainer[]> {
   return agents;
 }
 
+/** List orphaned proxy containers (matching agents-cli-*-proxy-* but missing the managed label). */
+export async function listOrphanedProxyContainers(): Promise<AgentContainer[]> {
+  const containers = await docker.listContainers({
+    all: true,
+    filters: { name: ["agents-cli-"] },
+  });
+
+  const orphans: AgentContainer[] = [];
+  for (const c of containers) {
+    // Skip containers that already have the managed label (handled by listAgentContainers)
+    if (c.Labels?.[MANAGED_LABEL] === "true") continue;
+
+    const name = (c.Names?.[0] ?? "").replace(/^\//, "");
+    // Only pick up proxy containers
+    if (!name.includes("-proxy-")) continue;
+
+    orphans.push({
+      id: c.Id,
+      shortId: c.Id.slice(0, 12),
+      name,
+      status: c.Status ?? "",
+      state: c.State ?? "",
+      created: new Date(c.Created * 1000).toISOString(),
+      image: c.Image,
+      codebase: c.Labels?.["com.agents-cli.codebase"] ?? "",
+      sessionName: c.Labels?.["com.agents-cli.name"] ?? "",
+    });
+  }
+
+  return orphans;
+}
+
 /** Stream parsed events from a container's logs. */
 export async function* streamContainerLogs(
   containerId: string,

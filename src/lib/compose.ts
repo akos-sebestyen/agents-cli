@@ -68,6 +68,7 @@ function generateComposeYaml(opts: {
           `${opts.proxyFilterFile}:/scripts/block-write-methods.py:ro`,
           "mitmproxy-certs:/home/mitmproxy/.mitmproxy",
         ],
+        labels,
         networks: ["agent-net"],
         healthcheck: {
           test: ["CMD", "ls", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"],
@@ -197,6 +198,7 @@ export async function launchAgent(opts: LaunchOptions): Promise<void> {
     process.on("SIGINT", forwardSignal);
     process.on("SIGTERM", forwardSignal);
 
+    let exitCode: number;
     try {
       if (useLogFile && proc.stdout) {
         const writer = Bun.file(opts.logFile!).writer();
@@ -210,17 +212,20 @@ export async function launchAgent(opts: LaunchOptions): Promise<void> {
           }
           writer.end();
         })();
-        const exitCode = await proc.exited;
+        exitCode = await proc.exited;
         await drain;
-        if (exitCode !== 0) process.exit(exitCode);
       } else {
-        const exitCode = await proc.exited;
-        if (exitCode !== 0) process.exit(exitCode);
+        exitCode = await proc.exited;
       }
     } finally {
       process.off("SIGINT", forwardSignal);
       process.off("SIGTERM", forwardSignal);
     }
+
+    // Tear down compose project (proxy container + network)
+    await $`docker compose -f ${composeFile} -p ${project} down`.quiet().nothrow();
+
+    if (exitCode !== 0) process.exit(exitCode);
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -316,23 +321,26 @@ export async function resumeAgent(opts: {
 
 /** Stop and remove all agents-cli managed containers + associated volumes/networks. */
 export async function cleanAgents(): Promise<void> {
-  const { listAgentContainers } = await import("./docker.ts");
-  const containers = await listAgentContainers();
+  const { listAgentContainers, listOrphanedProxyContainers } = await import("./docker.ts");
+  const managed = await listAgentContainers();
+  const orphanedProxies = await listOrphanedProxyContainers();
 
-  if (containers.length === 0) {
+  const allContainers = [...managed, ...orphanedProxies];
+
+  if (allContainers.length === 0) {
     console.log("No agent containers to clean.");
     return;
   }
 
   // Collect unique compose project names from container names (e.g., "agents-cli-abcd1234-agent-run-xyz")
   const projects = new Set<string>();
-  for (const c of containers) {
+  for (const c of allContainers) {
     // Container names follow pattern: <project>-agent-run-<id> or <project>-proxy-<n>
     const match = c.name.match(/^(agents-cli-.+?)-(agent|proxy)-/);
     if (match) projects.add(match[1]);
   }
 
-  for (const c of containers) {
+  for (const c of allContainers) {
     if (c.state === "running") {
       await $`docker stop ${c.id}`.quiet();
     }
@@ -346,5 +354,14 @@ export async function cleanAgents(): Promise<void> {
     await $`docker network rm ${project}_agent-net`.quiet().nothrow();
   }
 
-  console.log(`Cleaned ${containers.length} container(s), ${projects.size} project(s).`);
+  // Prune any lingering agents-cli networks whose containers are already gone
+  const networkResult = await $`docker network ls --filter name=agents-cli- --format '{{.Name}}'`.quiet().nothrow();
+  if (networkResult.exitCode === 0) {
+    const networks = networkResult.text().trim().split("\n").filter(Boolean);
+    for (const net of networks) {
+      await $`docker network rm ${net}`.quiet().nothrow();
+    }
+  }
+
+  console.log(`Cleaned ${allContainers.length} container(s), ${projects.size} project(s).`);
 }
