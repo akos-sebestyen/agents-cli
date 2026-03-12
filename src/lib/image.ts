@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { $ } from "bun";
@@ -28,6 +28,65 @@ export function validateDockerfile(content: string): void {
       `Dockerfile must use "agents-cli-sandbox" as its base image (FROM agents-cli-sandbox:...), got: ${imageRef}`
     );
   }
+}
+
+const EXT_IMAGE_NAME = "agents-cli-ext";
+
+export function getExtendedImageTag(baseImageId: string, dockerfileContents: string): string {
+  const hasher = createHash("sha256");
+  hasher.update(baseImageId);
+  hasher.update(dockerfileContents);
+  return `${EXT_IMAGE_NAME}:${hasher.digest("hex").slice(0, 12)}`;
+}
+
+export function rewriteFromLine(dockerfileContents: string, baseTag: string): string {
+  return dockerfileContents.replace(
+    /^(FROM\s+)agents-cli-sandbox:\S+/im,
+    `$1${baseTag}`,
+  );
+}
+
+export async function buildExtendedImage(
+  dockerfilePath: string,
+  contextPath: string,
+): Promise<string> {
+  const dockerfileContents = readFileSync(dockerfilePath, "utf-8");
+  validateDockerfile(dockerfileContents);
+
+  const baseTag = getImageTag();
+  const inspectResult = await $`docker image inspect --format={{.Id}} ${baseTag}`.quiet().nothrow();
+  if (inspectResult.exitCode !== 0) {
+    throw new Error(`Base image ${baseTag} not found. Run without --dockerfile first, or run 'agents-cli build' to build it.`);
+  }
+  const baseImageId = inspectResult.text().trim();
+
+  const extTag = getExtendedImageTag(baseImageId, dockerfileContents);
+
+  const cached = await $`docker image inspect ${extTag}`.quiet().nothrow();
+  if (cached.exitCode === 0) {
+    return extTag;
+  }
+
+  console.log(`Building extended image ${extTag}...`);
+
+  const rewrittenDockerfile = rewriteFromLine(dockerfileContents, baseTag);
+
+  const buildDir = mkdtempSync(join(tmpdir(), "agents-cli-ext-build-"));
+  try {
+    const tmpDockerfile = join(buildDir, "Dockerfile");
+    writeFileSync(tmpDockerfile, rewrittenDockerfile);
+
+    const build = await $`docker build -f ${tmpDockerfile} -t ${extTag} ${contextPath}`.nothrow();
+    if (build.exitCode !== 0) {
+      console.error("Failed to build extended image");
+      process.exit(1);
+    }
+  } finally {
+    rmSync(buildDir, { recursive: true, force: true });
+  }
+
+  console.log(`Built ${extTag}`);
+  return extTag;
 }
 
 // Hash all assets in alphabetical order by filename
