@@ -25,7 +25,12 @@ export const buildCommand = new Command("build")
     }
 
     // Validate Dockerfile before building base image (fast failure)
-    validateDockerfile(readFileSync(dockerfilePath, "utf-8"));
+    try {
+      validateDockerfile(readFileSync(dockerfilePath, "utf-8"));
+    } catch (e: unknown) {
+      console.error((e as Error).message);
+      process.exit(1);
+    }
 
     // Ensure base image exists first
     await ensureImage();
