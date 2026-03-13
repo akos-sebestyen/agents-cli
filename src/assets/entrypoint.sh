@@ -32,6 +32,23 @@ if [ -d /home/claude/.claude-config-ro ] && [ ! -f /home/claude/.claude/.copied 
     su claude -c "touch /home/claude/.claude/.copied"
 fi
 
+# Disable Claude Code sandbox inside the container — the container itself is
+# already sandboxed (Docker isolation + iptables firewall + mitmproxy).
+# The Claude sandbox can interfere with legitimate commands inside the container.
+SETTINGS_LOCAL="/home/claude/.claude/settings.local.json"
+if [ -f "$SETTINGS_LOCAL" ]; then
+    su claude -c "python3 -c \"
+import json
+with open('$SETTINGS_LOCAL') as f:
+    s = json.load(f)
+s['sandbox'] = {'enabled': False}
+with open('$SETTINGS_LOCAL', 'w') as f:
+    json.dump(s, f, indent=2)
+\""
+else
+    su claude -c "echo '{\"sandbox\":{\"enabled\":false}}' > '$SETTINGS_LOCAL'"
+fi
+
 # Import mitmproxy CA into Chromium's NSS database so it trusts the proxy cert
 su claude -c "mkdir -p /home/claude/.pki/nssdb"
 su claude -c "certutil -d sql:/home/claude/.pki/nssdb -N --empty-password"

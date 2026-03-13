@@ -43,6 +43,8 @@ export async function listAgentContainers(): Promise<AgentContainer[]> {
 
   for (const c of containers) {
     const name = (c.Names?.[0] ?? "").replace(/^\//, "");
+    // Skip proxy sidecar containers — only show agent containers
+    if (name.includes("-proxy-")) continue;
     agents.push({
       id: c.Id,
       shortId: c.Id.slice(0, 12),
@@ -95,6 +97,30 @@ export async function listOrphanedProxyContainers(): Promise<AgentContainer[]> {
   }
 
   return orphans;
+}
+
+/**
+ * Resolve a user-provided identifier to a container.
+ * Tries in order: direct Docker lookup (ID/container name), then session name match.
+ */
+export async function resolveContainerId(identifier: string): Promise<AgentContainer | null> {
+  const agents = await listAgentContainers();
+
+  // Try matching by short ID, full ID, or Docker container name
+  const byId = agents.find(a =>
+    a.shortId === identifier ||
+    a.id === identifier ||
+    a.name === identifier
+  );
+  if (byId) return byId;
+
+  // Try matching by session name (case-insensitive)
+  const bySessionName = agents.find(a =>
+    a.sessionName && a.sessionName.toLowerCase() === identifier.toLowerCase()
+  );
+  if (bySessionName) return bySessionName;
+
+  return null;
 }
 
 const MAX_FRAME_SIZE = 16 * 1024 * 1024; // 16MB sanity limit

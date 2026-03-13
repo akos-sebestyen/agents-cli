@@ -1,22 +1,25 @@
 import { Command } from "commander";
-import { streamContainerLogs, listAgentContainers, ensureDocker } from "../lib/docker.ts";
+import { streamContainerLogs, listAgentContainers, ensureDocker, resolveContainerId } from "../lib/docker.ts";
 import type { ParsedEvent } from "../lib/docker.ts";
 
 export const logsCommand = new Command("logs")
   .description("Stream parsed logs from an agent container")
-  .argument("[container-id]", "Container ID or name (default: most recent)")
+  .argument("[container-id]", "Container ID, name, or session name (default: most recent)")
   .option("-f, --follow", "Follow log output", false)
+  .option("-n, --name <name>", "Look up container by session name")
   .option("--raw", "Show raw JSON events instead of formatted output", false)
   .action(
     async (
       containerId: string | undefined,
-      opts: { follow: boolean; raw: boolean },
+      opts: { follow: boolean; name?: string; raw: boolean },
     ) => {
       await ensureDocker();
 
-      let targetId = containerId;
+      let targetId: string | undefined;
 
-      if (!targetId) {
+      const identifier = opts.name ?? containerId;
+
+      if (!identifier) {
         const agents = await listAgentContainers();
         if (agents.length === 0) {
           console.error("No agent containers found.");
@@ -24,6 +27,14 @@ export const logsCommand = new Command("logs")
         }
         targetId = agents[0]!.shortId;
         console.log(`Streaming logs from ${agents[0]!.name} (${targetId})\n`);
+      } else {
+        const resolved = await resolveContainerId(identifier);
+        if (!resolved) {
+          console.error(`Container '${identifier}' not found. Run 'agents-cli list' to see available containers.`);
+          process.exit(1);
+        }
+        targetId = resolved.id;
+        console.log(`Streaming logs from ${resolved.name} (${resolved.shortId})\n`);
       }
 
       try {
