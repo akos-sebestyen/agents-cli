@@ -14,6 +14,7 @@ export const launchCommand = new Command("launch")
   .option("-m, --model <model>", "Model override")
   .option("-n, --name <name>", "Session name (for parallel agents)")
   .option("--no-logs", "Disable auto-streaming logs to output folder")
+  .option("--log-dir <path>", "Directory for log files (defaults to --output)")
   .option("--dockerfile <path>", "Dockerfile extending base image")
   .action(async (path: string, opts: {
     output: string;
@@ -22,6 +23,7 @@ export const launchCommand = new Command("launch")
     model?: string;
     name?: string;
     logs: boolean;
+    logDir?: string;
     dockerfile?: string;
   }) => {
     await ensureDocker();
@@ -54,9 +56,10 @@ export const launchCommand = new Command("launch")
 
     let logFile: string | undefined;
     if (opts.prompt && opts.logs) {
-      mkdirSync(outputPath, { recursive: true });
+      const logDirPath = opts.logDir ? resolve(opts.logDir) : outputPath;
+      mkdirSync(logDirPath, { recursive: true });
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      logFile = join(outputPath, `logs_${projectName(codebasePath, opts.name)}_${timestamp}.jsonl`);
+      logFile = join(logDirPath, `logs_${projectName(codebasePath, opts.name)}_${timestamp}.jsonl`);
       console.error(`Logs: ${logFile}`);
     }
 
